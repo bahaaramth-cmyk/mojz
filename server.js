@@ -8,6 +8,7 @@ const { CookieJar } = require('tough-cookie');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -42,29 +43,31 @@ app.post('/api/settings', (req, res) => {
     }
 });
 
+// المسار الرئيسي للبحث بإنشاء جلسة معزولة وخاصة بالطلب الحقيقي
 app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode } = req.body;
     const config = getSettings();
 
-    // إدارة الكوكيز والجلسة
-    const jar = new CookieJar();
-    const client = wrapper(axios.create({
-        jar,
+    // 💡 إنشاء جلسة كوكيز جيدة تماماً وخاصة بهذا الطلب والزائر فقط
+    const freshJar = new CookieJar();
+    const isolatedClient = wrapper(axios.create({
+        jar: freshJar,
         headers: config.headers || {},
         timeout: 15000,
         withCredentials: true
     }));
 
     // -------------------------------------------------------------
-    // المرحلة الأولى: جلب صورة الكابتشا
+    // المرحلة 1: إذا لم يرسل الزائر كابتشا، نفتح جلسة جديدة ونجلب الصورة
     // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
-            return res.status(400).json({ success: false, message: 'تنبيه: لم يتم ضبط رابط الكابتشا في لوحة التحكم' });
+            return res.status(400).json({ success: false, message: 'لم يتم ضبط رابط الكابتشا في لوحة التحكم' });
         }
 
         try {
-            const imgRes = await client.get(config.captchaImgUrl);
+            console.log('--- بدء جلسة جديدة: جلب صورة الكابتشا ---');
+            const imgRes = await isolatedClient.get(config.captchaImgUrl);
             let base64Image = '';
 
             if (typeof imgRes.data === 'object' && imgRes.data !== null) {
@@ -82,10 +85,6 @@ app.post('/api/proxy-search', async (req, res) => {
                 base64Image = `data:image/png;base64,${base64Image}`;
             }
 
-            if (!base64Image) {
-                return res.status(500).json({ success: false, message: 'فشل جلب الكابتشا: لم يتم العثور على حقل imageB64 في الاستجابة' });
-            }
-
             return res.json({
                 success: false,
                 requireCaptcha: true,
@@ -95,79 +94,76 @@ app.post('/api/proxy-search', async (req, res) => {
         } catch (err) {
             return res.status(500).json({ 
                 success: false, 
-                message: 'خطأ أثناء جلب صورة الكابتشا من الموقع الأصلي',
-                step: 'GET_CAPTCHA_IMAGE',
+                message: 'خطأ في جلب صورة الكابتشا بالجلسة الجديدة',
                 errorDetails: err.response ? err.response.data : err.message
             });
         }
     }
 
     // -------------------------------------------------------------
-    // المرحلة الثانية: تنفيذ الخطوات الثلاث المتتالية وتخصيص رسائل الخطأ
+    // المرحلة 2: تنفيذ السلسلة كاملة بنفس الجلسة المعزولة
     // -------------------------------------------------------------
-
-    // الخطوة 1: التحقق من الكابتشا (POST /i)
-    let verifyRes;
     try {
-        console.log('1. إرسال طلب التحقق من الكابتشا (/i)...');
-        const verifyPayload = { [config.captchaField || 'captcha']: captchaCode };
-        verifyRes = await client.post(config.verifyCaptchaUrl, verifyPayload);
+        // 1. إعادة توليد الجلسة لتجربة التمرير أو جلب صورة جديدة سريعاً لربط الكوكيز
+        if (config.captchaImgUrl) {
+            console.log('--- جلسة مستقلة: ربط الجلسة بطلب صورة أولاً ---');
+            await isolatedClient.get(config.captchaImgUrl);
+        }
 
-        // إذا عاد رد ولكن بدون Success
+        // 2. إرسال الكابتشا لمسار /i
+        console.log('--- جلسة مستقلة: 1. التحقق من الكابتشا (/i) ---');
+        const captchaFieldName = config.captchaField || 'captcha';
+        const verifyPayload = { [captchaFieldName]: captchaCode };
+
+        const verifyRes = await isolatedClient.post(config.verifyCaptchaUrl, verifyPayload, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(config.headers || {})
+            }
+        });
+
+        // طباعة الرد للتأكد
+        console.log('رد مسار /i:', verifyRes.data);
+
         const isSuccess = verifyRes.data && (verifyRes.data.result === 'Success' || verifyRes.data.success === true);
         if (!isSuccess) {
             return res.json({
                 success: false,
-                message: 'رمز الكابتشا غير صحيح أو منتهي الصلاحية.',
+                message: 'رمز الكابتشا غير صحيح أو انتهت صلاحيته.',
                 step: 'VERIFY_CAPTCHA_FAILED',
                 originalResponse: verifyRes.data
             });
         }
-    } catch (err) {
-        return res.status(500).json({
-            success: false,
-            message: 'خطأ أثناء التحقق من الكابتشا (فشل الاتصال بمسار /i)',
-            step: 'VERIFY_CAPTCHA_ERROR',
-            errorDetails: err.response ? err.response.data : err.message
-        });
-    }
 
-    // الخطوة 2: إنشاء طلب البحث (POST /createRequest)
-    let createRes;
-    try {
-        console.log('2. إرسال طلب إنشاء البحث (/createRequest)...');
+        // 3. إنشاء طلب البحث /createRequest
+        console.log('--- جلسة مستقلة: 2. إنشاء الطلب (/createRequest) ---');
         const createPayload = { [config.phoneField || 'phone']: phoneNumber };
-        createRes = await client.post(config.createRequestUrl, createPayload);
-    } catch (err) {
-        return res.status(500).json({
-            success: false,
-            message: 'نجح التحقق من الكابتشا ولكن فشلت خطوة إنشاء طلب البحث (/createRequest)',
-            step: 'CREATE_REQUEST_ERROR',
-            errorDetails: err.response ? err.response.data : err.message
-        });
-    }
+        const createRes = await isolatedClient.post(config.createRequestUrl, createPayload);
 
-    // الخطوة 3: جلب التقرير والنتائج (POST /getreport)
-    try {
-        console.log('3. إرسال طلب جلب التقرير (/getreport)...');
+        // 4. جلب التقرير /getreport
+        console.log('--- جلسة مستقلة: 3. جلب التقرير (/getreport) ---');
         const reportPayload = { 
             [config.phoneField || 'phone']: phoneNumber,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
-        const reportRes = await client.post(config.getReportUrl, reportPayload);
+        const reportRes = await isolatedClient.post(config.getReportUrl, reportPayload);
 
+        // إرجاع النتائج بنجاح
         return res.json({
             success: true,
             data: reportRes.data
         });
 
     } catch (err) {
+        const status = err.response ? err.response.status : 'No Status';
+        const errorData = err.response ? err.response.data : err.message;
+        console.error(`خطأ الجلسة (${status}):`, errorData);
+
         return res.status(500).json({
             success: false,
-            message: 'نجح إنشاء الطلب ولكن فشل جلب التقرير النهائي (/getreport)',
-            step: 'GET_REPORT_ERROR',
-            createRequestData: createRes.data,
-            errorDetails: err.response ? err.response.data : err.message
+            message: `فشل التنفيذ في الجلسة المخصصة (رمز: ${status})`,
+            status: status,
+            errorDetails: errorData
         });
     }
 });

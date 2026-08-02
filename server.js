@@ -3,12 +3,9 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
-const { wrapper } = require('axios-cookiejar-support');
-const { CookieJar } = require('tough-cookie');
 
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -44,31 +41,29 @@ app.post('/api/settings', (req, res) => {
 });
 
 app.post('/api/proxy-search', async (req, res) => {
-    const { phoneNumber, captchaCode } = req.body;
+    const { phoneNumber, captchaCode, sessionCookie } = req.body;
     const config = getSettings();
 
-    // جلسة مستقلة لكل طلب
-    const jar = new CookieJar();
-    const client = wrapper(axios.create({
-        jar,
-        headers: config.headers || {},
-        timeout: 15000,
-        withCredentials: true
-    }));
-
     // -------------------------------------------------------------
-    // المرحلة 1: طلب صورة الكابتشا وتوليد الجلسة
+    // المرحلة 1: جلب صورة الكابتشا + استخراج الكوكي وتمريرها للعميل
     // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
-            return res.status(400).json({ success: false, message: 'لم يتم ضبط رابط الكابتشا في لوحة التحكم' });
+            return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
         }
 
         try {
-            console.log('--- [المرحلة 1] جلب صورة الكابتشا وتوليد جلسة جديدة ---');
-            const imgRes = await client.get(config.captchaImgUrl);
-            let base64Image = '';
+            console.log('--- جلب الكابتشا واستخراج كوكي الجلسة ---');
+            
+            const imgRes = await axios.get(config.captchaImgUrl, {
+                headers: config.headers || {}
+            });
 
+            // استخراج الكوكيز التي أرجعها الموقع الأصلي مع الصورة
+            const setCookieHeader = imgRes.headers['set-cookie'];
+            const originalCookie = setCookieHeader ? setCookieHeader.join('; ') : '';
+
+            let base64Image = '';
             if (typeof imgRes.data === 'object' && imgRes.data !== null) {
                 base64Image = imgRes.data.imageB64 || imgRes.data.captcha || imgRes.data.image || '';
             } else if (typeof imgRes.data === 'string') {
@@ -84,59 +79,49 @@ app.post('/api/proxy-search', async (req, res) => {
                 base64Image = `data:image/png;base64,${base64Image}`;
             }
 
+            // إرجاع الصورة + الكوكي إلى الواجهة التجريبية الاحتفاظ بها للطلب القادم
             return res.json({
                 success: false,
                 requireCaptcha: true,
-                captchaImage: base64Image
+                captchaImage: base64Image,
+                sessionCookie: originalCookie
             });
 
         } catch (err) {
-            console.error('خطأ في جلب الكابتشا:', err.message);
+            console.error('خطأ الكابتشا:', err.message);
             return res.status(500).json({ 
                 success: false, 
-                message: 'خطأ أثناء جلب صورة الكابتشا من الموقع الأصلي',
+                message: 'فشل جلب صورة الكابتشا من الموقع الأصلي',
                 errorDetails: err.response ? err.response.data : err.message
             });
         }
     }
 
     // -------------------------------------------------------------
-    // المرحلة 2: التحقق والتنفيذ لجميع الخطوات بعد إدخال الكابتشا
+    // المرحلة 2: استخدام الكوكي نفسها لاستكمال السلسلة الثلاثية
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
 
-        // 1. إرسال طلب التحقق من الكابتشا إلى /i
-        console.log(`--- [المرحلة 2-1] إرسال الرمز (${captchaCode}) إلى ${config.verifyCaptchaUrl} ---`);
-        
+        // دمج الكوكي القادمة من المتصفح التجريبي مع الترويسات الأساسية
+        const reqHeaders = {
+            ...(config.headers || {}),
+            ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
+        };
+
+        // 1. التحقق من الكابتشا في مسار /i بنفس الكوكي
+        console.log(`--- 1. إرسال الكابتشا بنفس الجلسة (${captchaCode}) ---`);
         const verifyPayload = { [captchaFieldName]: captchaCode };
 
-        let verifyRes;
-        try {
-            verifyRes = await client.post(config.verifyCaptchaUrl, verifyPayload, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(config.headers || {})
-                }
-            });
-        } catch (postErr) {
-            // إذا فشل كـ JSON، نجرّب الإرسال كـ Form URL Encoded
-            console.log('إعادة المحاولة بصيغة URL-Encoded...');
-            const params = new URLSearchParams();
-            params.append(captchaFieldName, captchaCode);
+        const verifyRes = await axios.post(config.verifyCaptchaUrl, verifyPayload, {
+            headers: reqHeaders
+        });
 
-            verifyRes = await client.post(config.verifyCaptchaUrl, params, {
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    ...(config.headers || {})
-                }
-            });
-        }
-
-        console.log('استجابة مسار /i:', verifyRes.data);
+        console.log('استجابة /i:', verifyRes.data);
 
         const isSuccess = verifyRes.data && (verifyRes.data.result === 'Success' || verifyRes.data.success === true);
+        
         if (!isSuccess) {
             return res.json({
                 success: false,
@@ -146,18 +131,22 @@ app.post('/api/proxy-search', async (req, res) => {
             });
         }
 
-        // 2. إنشاء طلب البحث /createRequest
-        console.log(`--- [المرحلة 2-2] إنشاء طلب البحث للرقم (${phoneNumber}) ---`);
+        // 2. إنشاء طلب البحث /createRequest بنفس الكوكي
+        console.log('--- 2. إنشاء طلب البحث ---');
         const createPayload = { [phoneFieldName]: phoneNumber };
-        const createRes = await client.post(config.createRequestUrl, createPayload);
+        const createRes = await axios.post(config.createRequestUrl, createPayload, {
+            headers: reqHeaders
+        });
 
-        // 3. جلب التقرير والنتائج /getreport
-        console.log('--- [المرحلة 2-3] جلب التقرير والنتائج ---');
+        // 3. جلب التقرير /getreport بنفس الكوكي
+        console.log('--- 3. جلب التقرير والنتائج ---');
         const reportPayload = { 
             [phoneFieldName]: phoneNumber,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
-        const reportRes = await client.post(config.getReportUrl, reportPayload);
+        const reportRes = await axios.post(config.getReportUrl, reportPayload, {
+            headers: reqHeaders
+        });
 
         return res.json({
             success: true,
@@ -168,11 +157,11 @@ app.post('/api/proxy-search', async (req, res) => {
         const status = err.response ? err.response.status : 'No Response';
         const responseData = err.response ? err.response.data : err.message;
         
-        console.error(`خطأ في تنفيذ السلسلة (رمز ${status}):`, responseData);
+        console.error(`خطأ أثناء التنفيذ (${status}):`, responseData);
 
         return res.status(status === 'No Response' ? 500 : status).json({
             success: false,
-            message: `فشل طلب السلسلة عند الخطوة الحالية (رمز الخطأ: ${status})`,
+            message: `فشل التنفيذ (رمز الخطأ: ${status})`,
             status: status,
             errorDetails: responseData
         });

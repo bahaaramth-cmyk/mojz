@@ -3,153 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>الموقع التجريبي - محاكاة الاستعلام اللحظي</title>
+    <title>الموقع التجريبي - بحث منبثق الكابتشا</title>
     <style>
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .card { background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); width: 100%; max-width: 500px; }
-        .card h2 { margin-top: 0; color: #2c3e50; text-align: center; margin-bottom: 8px; }
-        .card p.subtitle { color: #7f8c8d; text-align: center; font-size: 14px; margin-bottom: 25px; }
-        .form-group { margin-bottom: 18px; text-align: right; }
-        label { display: block; font-weight: 600; margin-bottom: 6px; color: #34495e; font-size: 14px; }
-        input[type="text"], input[type="tel"] { width: 100%; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 15px; transition: border-color 0.2s; }
-        input:focus { border-color: #3498db; outline: none; }
+        body { font-family: system-ui, sans-serif; background: #f0f2f5; padding: 40px; text-align: center; }
+        .card { background: white; padding: 30px; border-radius: 10px; max-width: 450px; margin: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        button { background: #1a73e8; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; width: 100%; font-size: 16px; font-weight: bold; }
         
-        /* قسم الكابتشا */
-        .captcha-box { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .captcha-img-container { flex: 1; height: 50px; background: #eef2f5; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #dcdfe6; }
-        .captcha-img-container img { max-height: 100%; max-width: 100%; object-fit: contain; }
-        .btn-refresh { background: #f0f2f5; border: 1px solid #dcdfe6; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; color: #555; transition: background 0.2s; }
-        .btn-refresh:hover { background: #e2e8f0; }
-
-        /* زر البحث */
-        .btn-submit { background: #3498db; color: white; border: none; padding: 14px; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
-        .btn-submit:hover { background: #2980b9; }
-        .btn-submit:disabled { background: #bdc3c7; cursor: not-allowed; }
-
-        /* عرض النتائج */
-        #resultContainer { margin-top: 25px; display: none; }
-        .result-header { font-weight: bold; margin-bottom: 10px; color: #2c3e50; font-size: 15px; }
-        .result-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; font-size: 14px; max-height: 250px; overflow-y: auto; text-align: left; direction: ltr; }
-        .status-msg { text-align: center; padding: 10px; border-radius: 8px; margin-top: 15px; display: none; font-size: 14px; }
-        .status-loading { background: #e0f2fe; color: #0369a1; }
-        .status-error { background: #fee2e2; color: #b91c1c; }
+        /* تصميم النافذة المنبثقة Modal */
+        .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 25px; border-radius: 10px; max-width: 350px; width: 90%; text-align: right; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .captcha-img { width: 100%; height: 60px; object-fit: contain; background: #eee; border-radius: 5px; margin-bottom: 10px; }
+        #results { margin-top: 20px; background: #f8fafc; padding: 15px; border-radius: 6px; text-align: left; direction: ltr; display: none; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2>بوابة الاستعلام التجريبية</h2>
-        <p class="subtitle">محاكاة البحث اللحظي عبر السيرفر الوسيط</p>
+        <h2>استعلام البيانات</h2>
+        <input type="text" id="phoneInput" placeholder="أدخل رقم الهاتف...">
+        <button onclick="startSearch()">بحث الآن</button>
 
-        <form id="searchForm" onsubmit="handleSearch(event)">
-            <div class="form-group">
-                <label for="phoneNumber">رقم الهاتف / معرّف البحث:</label>
-                <input type="text" id="phoneNumber" placeholder="أدخل رقم الهاتف للبحث..." required autocomplete="off">
-            </div>
+        <div id="statusMsg" style="margin-top:15px; color:#555;"></div>
+        <div id="results"><pre id="jsonOutput"></pre></div>
+    </div>
 
-            <div class="form-group">
-                <label>رمز التحقق (الكابتشا):</label>
-                <div class="captcha-box">
-                    <div class="captcha-img-container">
-                        <span id="captchaPlaceholder" style="font-size: 12px; color: #888;">جاري التحميل...</span>
-                        <img id="captchaImg" src="" alt="الكابتشا" style="display: none;">
-                    </div>
-                    <button type="button" class="btn-refresh" onclick="loadCaptcha()" title="تحديث الصورة">🔄 تحديث</button>
-                </div>
-                <input type="text" id="captchaCode" placeholder="أدخل الأرقام الظاهرة في الصورة" required autocomplete="off">
-            </div>
-
-            <button type="submit" id="submitBtn" class="btn-submit">بحث الآن</button>
-        </form>
-
-        <div id="statusMsg" class="status-msg"></div>
-
-        <div id="resultContainer">
-            <div class="result-header">النتائج القادمة من الموقع الأصلي:</div>
-            <div class="result-box">
-                <pre id="jsonResult" style="margin: 0; white-space: pre-wrap; word-break: break-all;"></pre>
-            </div>
+    <div id="captchaModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 style="margin-top:0;">التحقق من الكابتشا</h3>
+            <p style="font-size:14px; color:#666;">يرجى إدخال الرقم الظاهر بالصورة لإكمال البحث:</p>
+            <img id="modalCaptchaImg" class="captcha-img" src="" alt="الكابتشا">
+            <input type="text" id="modalCaptchaInput" placeholder="أدخل الرمز هنا...">
+            <button onclick="submitCaptcha()">تأكيد وإرسال</button>
         </div>
     </div>
 
     <script>
-        // 1. جلب صورة الكابتشا من السيرفر الوسيط
-        async function loadCaptcha() {
-            const img = document.getElementById('captchaImg');
-            const placeholder = document.getElementById('captchaPlaceholder');
-            
-            img.style.display = 'none';
-            placeholder.style.display = 'inline';
-            placeholder.innerText = 'جاري التحميل...';
+        let currentPhone = '';
 
-            try {
-                const res = await fetch('/api/get-captcha');
-                const data = await res.json();
+        // المحاولة الأولى عند النقر على زر البحث الرئيسي
+        async function startSearch() {
+            currentPhone = document.getElementById('phoneInput').value.trim();
+            if (!currentPhone) return alert('أدخل الرقم');
 
-                if (data.success && data.captchaImage) {
-                    img.src = data.captchaImage;
-                    img.style.display = 'block';
-                    placeholder.style.display = 'none';
-                } else {
-                    placeholder.innerText = 'فشل جلب الصورة';
-                }
-            } catch (err) {
-                placeholder.innerText = 'خطأ في الاتصال';
-            }
+            document.getElementById('statusMsg').innerText = 'جاري الاتصال بالموقع الأصلي...';
+            document.getElementById('results').style.display = 'none';
+
+            await sendSearchRequest({ phoneNumber: currentPhone });
         }
 
-        // 2. إرسال طلب البحث اللحظي
-        async function handleSearch(e) {
-            e.preventDefault();
-
-            const phone = document.getElementById('phoneNumber').value.trim();
-            const captcha = document.getElementById('captchaCode').value.trim();
-            const submitBtn = document.getElementById('submitBtn');
-            const statusMsg = document.getElementById('statusMsg');
-            const resultContainer = document.getElementById('resultContainer');
-            const jsonResult = document.getElementById('jsonResult');
-
-            // إخفاء النتائج السابقة وإعادة ضبط الرسائل
-            resultContainer.style.display = 'none';
-            statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري إرسال الطلب وجلب البيانات من الموقع الأصلي...';
-            statusMsg.style.display = 'block';
-            submitBtn.disabled = true;
-
+        // إرسال الطلب إلى السيرفر
+        async function sendSearchRequest(payload) {
             try {
-                const response = await fetch('/api/proxy-search', {
+                const res = await fetch('/api/proxy-search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        phoneNumber: phone,
-                        captchaCode: captcha
-                    })
+                    body: JSON.stringify(payload)
                 });
+                const result = await res.json();
 
-                const result = await response.json();
-
-                if (result.success) {
-                    statusMsg.style.display = 'none';
-                    jsonResult.innerText = JSON.stringify(result.data, null, 2);
-                    resultContainer.style.display = 'block';
-                } else {
-                    statusMsg.className = 'status-msg status-error';
-                    statusMsg.innerText = result.message || 'حدث خطأ أثناء جلب النتائج';
+                // إذا طلب الموقع الكابتشا -> نفتح النافذة المنبثقة
+                if (result.requireCaptcha) {
+                    document.getElementById('statusMsg').innerText = '';
+                    document.getElementById('modalCaptchaImg').src = result.captchaImage;
+                    document.getElementById('captchaModal').style.display = 'flex';
+                } 
+                // إذا عادت النتائج بنجاح
+                else if (result.success) {
+                    closeModal();
+                    document.getElementById('statusMsg').innerText = '';
+                    document.getElementById('jsonOutput').innerText = JSON.stringify(result.data, null, 2);
+                    document.getElementById('results').style.display = 'block';
+                } 
+                else {
+                    document.getElementById('statusMsg').innerText = result.message || 'فشل البحث';
                 }
             } catch (err) {
-                statusMsg.className = 'status-msg status-error';
-                statusMsg.innerText = 'تعذر الاتصال بالسيرفر الوسيط';
-            } finally {
-                submitBtn.disabled = false;
-                // إعادة تحميل كابتشا جديدة بعد كل محاولة بحث
-                loadCaptcha();
-                document.getElementById('captchaCode').value = '';
+                document.getElementById('statusMsg').innerText = 'حدث خطأ في الشبكة';
             }
         }
 
-        // تحميل الكابتشا تلقائياً عند فتح الصفحة
-        window.onload = loadCaptcha;
+        // إرسال الكابتشا بعد كتابتها من قبل الزائر
+        async function submitCaptcha() {
+            const captchaCode = document.getElementById('modalCaptchaInput').value.trim();
+            if (!captchaCode) return alert('أدخل رمز الكابتشا');
+
+            document.getElementById('statusMsg').innerText = 'جاري التحقق وجلب النتائج...';
+            
+            // إرسال رقم الهاتف الأصلي + رمز الكابتشا المكتوب
+            await sendSearchRequest({
+                phoneNumber: currentPhone,
+                captchaCode: captchaCode
+            });
+            
+            document.getElementById('modalCaptchaInput').value = '';
+        }
+
+        function closeModal() {
+            document.getElementById('captchaModal').style.display = 'none';
+        }
     </script>
 </body>
 </html>

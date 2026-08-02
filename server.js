@@ -3,6 +3,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+const crypto = require('crypto'); // مكتبة توليد المعرفات العشوائية
 
 const app = express();
 app.use(express.json());
@@ -30,6 +31,12 @@ function getSettings() {
     }
 }
 
+// دالة لتوليد device_id عشوائي تماماً لكل زائر محاكي للموقع الأصلي
+function generateDynamicDeviceId() {
+    const randomUuid = crypto.randomUUID();
+    return `g:${randomUuid}`;
+}
+
 app.get('/health', (req, res) => res.status(200).send('Server is running healthy!'));
 app.get('/api/settings', (req, res) => res.json(getSettings()));
 
@@ -43,15 +50,19 @@ app.post('/api/settings', (req, res) => {
 });
 
 app.post('/api/proxy-search', async (req, res) => {
-    const { phoneNumber, captchaCode, sessionCookie, requestTimestamp } = req.body;
+    const { phoneNumber, captchaCode, sessionCookie, captchaUuid } = req.body;
     const config = getSettings();
 
-    // الترويسات الأساسية كما ظهرت في متصفحك بالضبط
+    // توليد device_id فريد ولحظي لهذا الطلب بالتحديد
+    const dynamicDeviceId = generateDynamicDeviceId();
+
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'x-api-version': 'v2',
+        'Origin': 'https://xxxtestxxx.com',
+        'Referer': 'https://xxxtestxxx.com/mojaz/',
         'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -62,9 +73,7 @@ app.post('/api/proxy-search', async (req, res) => {
         ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
     };
 
-    // -------------------------------------------------------------
-    // 1. جلب صورة الكابتشا (GET) + حفظ الكوكي الأمنية المتولدة
-    // -------------------------------------------------------------
+    // 1. جلب صورة الكابتشا
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
             return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
@@ -75,12 +84,16 @@ app.post('/api/proxy-search', async (req, res) => {
             const baseUrl = config.captchaImgUrl.split('?')[0];
             const fullCaptchaUrl = `${baseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] جلب الكابتشا: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] جلب الكابتشا بـ Device ID عشوائي: ${dynamicDeviceId} ---`);
             const imgRes = await axios.get(fullCaptchaUrl, { headers: baseHeaders });
 
-            // استخراج الكوكيز المتولدة من السيرفر (مثل TS15126cf3027)
             const setCookieHeader = imgRes.headers['set-cookie'];
             const newCookie = setCookieHeader ? setCookieHeader.join('; ') : sessionCookie || '';
+
+            let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
+            if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
+                extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || '';
+            }
 
             let base64Image = '';
             if (typeof imgRes.data === 'object' && imgRes.data !== null) {
@@ -103,11 +116,10 @@ app.post('/api/proxy-search', async (req, res) => {
                 requireCaptcha: true,
                 captchaImage: base64Image,
                 sessionCookie: newCookie,
-                requestTimestamp: currentTimestamp
+                captchaUuid: extractedUuid
             });
 
         } catch (err) {
-            console.error('خطأ جلب الكابتشا:', err.response ? err.response.data : err.message);
             return res.status(500).json({ 
                 success: false, 
                 message: 'فشل جلب صورة الكابتشا من الموقع الأصلي',
@@ -116,40 +128,44 @@ app.post('/api/proxy-search', async (req, res) => {
         }
     }
 
-    // -------------------------------------------------------------
-    // 2. إرسال createRequest و getReportPrice بصيغة JSON وبنفس الكوكي
-    // -------------------------------------------------------------
+    // 2. إرسال createRequest و getReportPrice بدمج المعرفات الديناميكية
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
 
+        const requestHeaders = {
+            ...baseHeaders,
+            ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
+        };
+
+        // دمج الـ device_id المولد ديناميكياً مع باقي البيانات
         const mergedPayload = {
+            "device_id": dynamicDeviceId,
+            "deviceId": dynamicDeviceId,
             ...(config.extraPayload || {}),
             [phoneFieldName]: phoneNumber,
             [captchaFieldName]: captchaCode
         };
 
-        // الخطوة A: createRequest
-        console.log('--- [2] إرسال طلب createRequest ---', mergedPayload);
+        // الخطوة 1: createRequest
+        console.log(`--- [2] إرسال createRequest بالـ Device ID: ${dynamicDeviceId} ---`);
         const createRes = await axios.post(
             config.createRequestUrl, 
             mergedPayload, 
-            { headers: baseHeaders }
+            { headers: requestHeaders }
         );
 
-        console.log('استجابة createRequest:', createRes.data);
-
-        // الخطوة B: getReportPrice
+        // الخطوة 2: getReportPrice
         const reportPayload = {
             ...mergedPayload,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
 
-        console.log('--- [3] إرسال طلب getReportPrice ---', reportPayload);
+        console.log('--- [3] إرسال طلب getReportPrice ---');
         const reportRes = await axios.post(
             config.getReportUrl, 
             reportPayload, 
-            { headers: baseHeaders }
+            { headers: requestHeaders }
         );
 
         return res.json({ success: true, data: reportRes.data });

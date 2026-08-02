@@ -25,23 +25,18 @@
         <h2>لوحة إعدادات المسارات والربط</h2>
         
         <div class="form-group">
-            <label>1. رابط صورة الكابتشا (GET):</label>
-            <input type="url" id="captchaImgUrl" placeholder="https://example.com/api/captcha" required>
+            <label>1. رابط صورة الكابتشا (captcha-image):</label>
+            <input type="url" id="captchaImgUrl" placeholder="https://example.com/api/captcha-image" required>
         </div>
 
         <div class="form-group">
-            <label>2. رابط التحقق من الكابتشا (POST /i):</label>
-            <input type="url" id="verifyCaptchaUrl" placeholder="https://example.com/api/i" required>
-        </div>
-
-        <div class="form-group">
-            <label>3. رابط إنشاء الطلب (POST /createRequest):</label>
+            <label>2. رابط إنشاء الطلب (POST /createRequest):</label>
             <input type="url" id="createRequestUrl" placeholder="https://example.com/api/createRequest" required>
         </div>
 
         <div class="form-group">
-            <label>4. رابط جلب التقرير (POST /getreport):</label>
-            <input type="url" id="getReportUrl" placeholder="https://example.com/api/getreport" required>
+            <label>3. رابط جلب السعر والتقرير (POST /getReportPrice):</label>
+            <input type="url" id="getReportUrl" placeholder="https://example.com/api/getReportPrice" required>
         </div>
 
         <div style="display: flex; gap: 10px;">
@@ -56,7 +51,7 @@
         </div>
 
         <div class="form-group">
-            <label>5. المعاملات الإضافية الـ Payload (مثل app_key و device_id بصيغة JSON):</label>
+            <label>4. المعاملات الإضافية للـ Payload (JSON):</label>
             <textarea id="extraPayload" rows="4" placeholder='{\n  "app_key": "xxx",\n  "device_id": "yyy"\n}'></textarea>
         </div>
 
@@ -75,7 +70,6 @@
                 const res = await fetch('/api/settings');
                 const data = await res.json();
                 document.getElementById('captchaImgUrl').value = data.captchaImgUrl || '';
-                document.getElementById('verifyCaptchaUrl').value = data.verifyCaptchaUrl || '';
                 document.getElementById('createRequestUrl').value = data.createRequestUrl || '';
                 document.getElementById('getReportUrl').value = data.getReportUrl || '';
                 document.getElementById('phoneField').value = data.phoneField || 'phone';
@@ -102,7 +96,6 @@
 
             const payload = {
                 captchaImgUrl: document.getElementById('captchaImgUrl').value,
-                verifyCaptchaUrl: document.getElementById('verifyCaptchaUrl').value,
                 createRequestUrl: document.getElementById('createRequestUrl').value,
                 getReportUrl: document.getElementById('getReportUrl').value,
                 phoneField: document.getElementById('phoneField').value,

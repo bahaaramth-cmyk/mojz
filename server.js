@@ -15,7 +15,6 @@ function getSettings() {
     if (!fs.existsSync(CONFIG_PATH)) {
         return { 
             captchaImgUrl: '', 
-            verifyCaptchaUrl: '', 
             createRequestUrl: '', 
             getReportUrl: '', 
             phoneField: 'phone',
@@ -27,7 +26,7 @@ function getSettings() {
     try {
         return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
-        return { captchaImgUrl: '', verifyCaptchaUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'phone', captchaField: 'captcha', extraPayload: {}, headers: {} };
+        return { captchaImgUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'phone', captchaField: 'captcha', extraPayload: {}, headers: {} };
     }
 }
 
@@ -47,25 +46,18 @@ app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie, requestTimestamp } = req.body;
     const config = getSettings();
 
-    // -------------------------------------------------------------
-    // الخطوة 1: توليد الـ Timestamp وجلب صورة الكابتشا
-    // -------------------------------------------------------------
+    // 1. طلب صورة الكابتشا (captcha-image?Timestamp)
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
             return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
         }
 
         try {
-            // توليد Timestamp بالمللي ثانية (مثل: 1785705172106)
             const currentTimestamp = Date.now().toString();
-
-            // تركيبة رابط الكابتشا بالـ Timestamp
             const baseUrl = config.captchaImgUrl.split('?')[0];
             const fullCaptchaUrl = `${baseUrl}?${currentTimestamp}`;
 
-            console.log(`--- توليد Timestamp جديد: ${currentTimestamp} ---`);
-            console.log(`--- جلب الكابتشا من: ${fullCaptchaUrl} ---`);
-
+            console.log(`--- [1] جلب الكابتشا: ${fullCaptchaUrl} ---`);
             const imgRes = await axios.get(fullCaptchaUrl, { headers: config.headers || {} });
 
             const setCookieHeader = imgRes.headers['set-cookie'];
@@ -92,11 +84,10 @@ app.post('/api/proxy-search', async (req, res) => {
                 requireCaptcha: true,
                 captchaImage: base64Image,
                 sessionCookie: originalCookie,
-                requestTimestamp: currentTimestamp // إرجاع الـ Timestamp للعميل للالتزام به
+                requestTimestamp: currentTimestamp
             });
 
         } catch (err) {
-            console.error('خطأ في جلب الكابتشا:', err.message);
             return res.status(500).json({ 
                 success: false, 
                 message: 'فشل جلب صورة الكابتشا من الموقع الأصلي',
@@ -105,9 +96,7 @@ app.post('/api/proxy-search', async (req, res) => {
         }
     }
 
-    // -------------------------------------------------------------
-    // الخطوة 2: تنفيذ السلسلة مع أداء نفس الـ Timestamp للـ Payload
-    // -------------------------------------------------------------
+    // 2. إرسال createRequest ثم getReportPrice مباشرة
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
@@ -116,7 +105,6 @@ app.post('/api/proxy-search', async (req, res) => {
             ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
         };
 
-        // دمج الـ Timestamp ونفس القيم الثابتة المحددة في الإعدادات
         const mergedPayload = {
             ...(config.extraPayload || {}),
             _t: requestTimestamp,
@@ -124,18 +112,8 @@ app.post('/api/proxy-search', async (req, res) => {
             timestamp: requestTimestamp
         };
 
-        // 1. إرسال الكابتشا لمسار /i
-        if (config.verifyCaptchaUrl) {
-            const verifyPayload = { 
-                ...mergedPayload,
-                [captchaFieldName]: captchaCode 
-            };
-            console.log('--- 1. إرسال الكابتشا بالـ Timestamp المحدد ---', verifyPayload);
-            await axios.post(config.verifyCaptchaUrl, verifyPayload, { headers: reqHeaders });
-        }
-
-        // 2. إنشاء طلب البحث
-        console.log('--- 2. إنشاء طلب البحث ---');
+        // الخطوة الأولى: createRequest
+        console.log('--- [2] إرسال طلب createRequest ---');
         const createPayload = { 
             ...mergedPayload,
             [phoneFieldName]: phoneNumber,
@@ -143,8 +121,8 @@ app.post('/api/proxy-search', async (req, res) => {
         };
         const createRes = await axios.post(config.createRequestUrl, createPayload, { headers: reqHeaders });
 
-        // 3. جلب التقرير والنتائج
-        console.log('--- 3. جلب التقرير والنتائج ---');
+        // الخطوة الثانية: getReportPrice (المسار الجديد الموضح بالصورة)
+        console.log('--- [3] إرسال طلب getReportPrice ---');
         const reportPayload = { 
             ...mergedPayload,
             [phoneFieldName]: phoneNumber,
@@ -157,11 +135,11 @@ app.post('/api/proxy-search', async (req, res) => {
     } catch (err) {
         const status = err.response ? err.response.status : 500;
         const errData = err.response ? err.response.data : err.message;
-        console.error(`خطأ أثناء تنفيذ السلسلة (رمز ${status}):`, errData);
+        console.error(`خطأ أثناء التنفيذ (${status}):`, errData);
 
         return res.status(status).json({
             success: false,
-            message: `فشل التنفيذ (رمز الخطأ: ${status})`,
+            message: `فشل التنفيذ عند جلب البيانات (رمز: ${status})`,
             errorDetails: errData
         });
     }

@@ -95,7 +95,9 @@ app.post('/api/proxy-search', async (req, res) => {
 });
 
 app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
-app.get('/', (req, res) => res.send('Server Running'));
+app.get('/', (req, res) =>{
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Running on port ${PORT}`));

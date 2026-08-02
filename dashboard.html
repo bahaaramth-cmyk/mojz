@@ -2,82 +2,124 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>لوحة تحكم mojz - الكابتشا</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم mojz - إعدادات المسارات</title>
     <style>
-        body { font-family: system-ui; background: #f0f2f5; padding: 20px; }
-        .container { max-width: 650px; margin: auto; background: #fff; padding: 25px; border-radius: 10px; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; padding: 20px; margin: 0; }
+        .container { max-width: 650px; margin: 20px auto; background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        h2 { margin-top: 0; color: #1a73e8; border-bottom: 2px solid #e8eaed; padding-bottom: 10px; }
         .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; }
-        input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { background: #1a73e8; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; }
+        label { display: block; font-weight: 600; margin-bottom: 5px; color: #3c4043; font-size: 14px; }
+        input, textarea { width: 100%; padding: 10px; border: 1px solid #dadce0; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        textarea { font-family: monospace; }
+        button { background: #1a73e8; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; transition: background 0.2s; }
+        button:hover { background: #1557b0; }
+        .status { margin-top: 15px; padding: 10px; border-radius: 6px; display: none; text-align: center; }
+        .success { background: #e6f4ea; color: #137333; }
+        .error { background: #fce8e6; color: #c5221f; }
     </style>
 </head>
 <body>
+
     <div class="container">
-        <h2>إعدادات الـ API والكابتشا</h2>
+        <h2>لوحة إعدادات المسارات والتمرير</h2>
         
         <div class="form-group">
-            <label>رابط الـ API للبحث:</label>
-            <input type="url" id="targetUrl" placeholder="https://example.com/api/search">
+            <label>1. رابط صورة الكابتشا (GET captcha image):</label>
+            <input type="url" id="captchaImgUrl" placeholder="https://example.com/api/captcha-image" required>
         </div>
 
         <div class="form-group">
-            <label>رابط صورة الكابتشا (Captcha Image URL):</label>
-            <input type="url" id="captchaUrl" placeholder="https://example.com/api/captcha-image">
+            <label>2. رابط التحقق من الكابتشا (POST /i):</label>
+            <input type="url" id="verifyCaptchaUrl" placeholder="https://example.com/api/i" required>
         </div>
 
         <div class="form-group">
-            <label>نوع الطلب:</label>
-            <select id="method"><option value="POST">POST</option><option value="GET">GET</option></select>
+            <label>3. رابط إنشاء الطلب (POST /createRequest):</label>
+            <input type="url" id="createRequestUrl" placeholder="https://example.com/api/createRequest" required>
         </div>
 
         <div class="form-group">
-            <label>اسم حقل الهاتف في الـ API الأصلي:</label>
-            <input type="text" id="targetPhoneField" placeholder="مثال: phone">
+            <label>4. رابط جلب التقرير (POST /getreport):</label>
+            <input type="url" id="getReportUrl" placeholder="https://example.com/api/getreport" required>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <div class="form-group" style="flex:1;">
+                <label>اسم حقل رقم الهاتف:</label>
+                <input type="text" id="phoneField" placeholder="مثال: phone">
+            </div>
+            <div class="form-group" style="flex:1;">
+                <label>اسم حقل الكابتشا:</label>
+                <input type="text" id="captchaField" placeholder="مثال: captcha">
+            </div>
         </div>
 
         <div class="form-group">
-            <label>اسم حقل الكابتشا في الـ API الأصلي:</label>
-            <input type="text" id="targetCaptchaField" placeholder="مثال: captcha_code">
-        </div>
-
-        <div class="form-group">
-            <label>الترويسات (Headers JSON):</label>
-            <textarea id="headers" rows="4"></textarea>
+            <label>الترويسات المخفية (Headers - بصيغة JSON):</label>
+            <textarea id="headers" rows="6" placeholder='{\n  "User-Agent": "Mozilla/5.0...",\n  "Cookie": "PHPSESSID=...",\n  "Referer": "https://..."\n}'></textarea>
         </div>
 
         <button onclick="saveSettings()">حفظ التغييرات</button>
+        <div id="statusMsg" class="status"></div>
     </div>
 
     <script>
         async function loadSettings() {
-            const res = await fetch('/api/settings');
-            const data = await res.json();
-            document.getElementById('targetUrl').value = data.targetUrl || '';
-            document.getElementById('captchaUrl').value = data.captchaUrl || '';
-            document.getElementById('method').value = data.method || 'POST';
-            document.getElementById('targetPhoneField').value = data.targetPhoneField || '';
-            document.getElementById('targetCaptchaField').value = data.targetCaptchaField || '';
-            document.getElementById('headers').value = JSON.stringify(data.headers || {}, null, 2);
+            try {
+                const res = await fetch('/api/settings');
+                const data = await res.json();
+                document.getElementById('captchaImgUrl').value = data.captchaImgUrl || '';
+                document.getElementById('verifyCaptchaUrl').value = data.verifyCaptchaUrl || '';
+                document.getElementById('createRequestUrl').value = data.createRequestUrl || '';
+                document.getElementById('getReportUrl').value = data.getReportUrl || '';
+                document.getElementById('phoneField').value = data.phoneField || 'phone';
+                document.getElementById('captchaField').value = data.captchaField || 'captcha';
+                document.getElementById('headers').value = JSON.stringify(data.headers || {}, null, 2);
+            } catch(e) {
+                console.error("فشل تحميل الإعدادات");
+            }
         }
 
         async function saveSettings() {
+            const statusDiv = document.getElementById('statusMsg');
+            let parsedHeaders = {};
+            try {
+                const headersText = document.getElementById('headers').value.trim();
+                if(headersText) parsedHeaders = JSON.parse(headersText);
+            } catch(e) {
+                statusDiv.className = 'status error';
+                statusDiv.innerText = 'صيغة הـ Headers غير صحيحة (يجب أن تكون JSON)';
+                statusDiv.style.display = 'block';
+                return;
+            }
+
             const payload = {
-                targetUrl: document.getElementById('targetUrl').value,
-                captchaUrl: document.getElementById('captchaUrl').value,
-                method: document.getElementById('method').value,
-                targetPhoneField: document.getElementById('targetPhoneField').value,
-                targetCaptchaField: document.getElementById('targetCaptchaField').value,
-                headers: JSON.parse(document.getElementById('headers').value || '{}')
+                captchaImgUrl: document.getElementById('captchaImgUrl').value,
+                verifyCaptchaUrl: document.getElementById('verifyCaptchaUrl').value,
+                createRequestUrl: document.getElementById('createRequestUrl').value,
+                getReportUrl: document.getElementById('getReportUrl').value,
+                phoneField: document.getElementById('phoneField').value,
+                captchaField: document.getElementById('captchaField').value,
+                headers: parsedHeaders
             };
 
-            await fetch('/api/settings', {
+            const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            alert('تم الحفظ!');
+
+            if (res.ok) {
+                statusDiv.className = 'status success';
+                statusDiv.innerText = 'تم حفظ الإعدادات بنجاح!';
+            } else {
+                statusDiv.className = 'status error';
+                statusDiv.innerText = 'حدث خطأ أثناء الحفظ.';
+            }
+            statusDiv.style.display = 'block';
         }
+
         loadSettings();
     </script>
 </body>

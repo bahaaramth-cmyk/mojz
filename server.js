@@ -26,7 +26,15 @@ function getSettings() {
     try {
         return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
-        return { captchaImgUrl: '', verifyCaptchaUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'phone', captchaField: 'captcha', headers: {} };
+        return { 
+            captchaImgUrl: '', 
+            verifyCaptchaUrl: '', 
+            createRequestUrl: '', 
+            getReportUrl: '', 
+            phoneField: 'phone', 
+            captchaField: 'captcha', 
+            headers: {} 
+        };
     }
 }
 
@@ -47,38 +55,77 @@ app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode } = req.body;
     const config = getSettings();
 
-    // إنشاء عميل HTTP يحتفظ بالـ Headers والجلسة
+    // إنشاء عميل HTTP يحتفظ بالـ Headers
     const client = axios.create({
         headers: config.headers || {},
         timeout: 15000
     });
 
     try {
-        // المرحلة الأولى: إذا لم يُرسل الزائر كود الكابتشا بعد، نقوم بجلب صورة الكابتشا وطلب إدخالها
+        // -------------------------------------------------------------
+        // المرحلة الأولى: جلب صورة الكابتشا استجابةً للـ JSON وحقل imageB64
+        // -------------------------------------------------------------
         if (!captchaCode) {
             if (!config.captchaImgUrl) {
-                return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' 
+                });
             }
 
-            const imgRes = await client.get(config.captchaImgUrl, { responseType: 'arraybuffer' });
-            const mimeType = imgRes.headers['content-type'] || 'image/png';
-            const base64Image = `data:${mimeType};base64,${Buffer.from(imgRes.data, 'binary').toString('base64')}`;
+            try {
+                const imgRes = await client.get(config.captchaImgUrl);
+                let base64Image = '';
 
-            return res.json({
-                success: false,
-                requireCaptcha: true,
-                captchaImage: base64Image
-            });
+                // استخراج الصورة من JSON (حقل imageB64) أو النصوص
+                if (typeof imgRes.data === 'object' && imgRes.data !== null) {
+                    base64Image = imgRes.data.imageB64 || imgRes.data.captcha || imgRes.data.image || '';
+                } else if (typeof imgRes.data === 'string') {
+                    try {
+                        const parsed = JSON.parse(imgRes.data);
+                        base64Image = parsed.imageB64 || parsed.captcha || parsed.image || '';
+                    } catch (e) {
+                        base64Image = imgRes.data;
+                    }
+                }
+
+                // إضافة البادئة المخصصة لـ Data URL إذا لم تكن موجودة
+                if (base64Image && !base64Image.startsWith('data:image')) {
+                    base64Image = `data:image/png;base64,${base64Image}`;
+                }
+
+                if (!base64Image) {
+                    return res.status(500).json({ 
+                        success: false, 
+                        message: 'لم يتم العثور على حقل imageB64 في استجابة الكابتشا' 
+                    });
+                }
+
+                return res.json({
+                    success: false,
+                    requireCaptcha: true,
+                    captchaImage: base64Image
+                });
+
+            } catch (err) {
+                console.error('خطأ في جلب الكابتشا:', err.message);
+                return res.status(500).json({ 
+                    success: false, 
+                    message: 'فشل الاتصال برابط الكابتشا' 
+                });
+            }
         }
 
-        // المرحلة الثانية: تنفيذ الخطوات الثلاث المتتالية بعد إدخال رمز الكابتشا
+        // -------------------------------------------------------------
+        // المرحلة الثانية: تنفيذ الخطوات الثلاث المتتالية بعد إدخال الكابتشا
+        // -------------------------------------------------------------
 
         // الخطوة 1: إرسال الكابتشا للتحقق (POST /i)
         console.log('1. التحقق من الكابتشا عبر /i ...');
         const verifyPayload = { [config.captchaField || 'captcha']: captchaCode };
         const verifyRes = await client.post(config.verifyCaptchaUrl, verifyPayload);
 
-        // التأكد من رد النجاح
+        // التأكد من أن النتيجة Success
         const isSuccess = verifyRes.data && (verifyRes.data.result === 'Success' || verifyRes.data.success === true);
         if (!isSuccess) {
             return res.json({
@@ -116,7 +163,7 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 });
 
-// مسارات تقديم الصفحات
+// تقديم الصفحات
 app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 

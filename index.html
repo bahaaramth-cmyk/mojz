@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>الموقع التجريبي - البحث اللحظي</title>
+    <title>الموقع التجريبي - الاستعلام اللحظي</title>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -12,20 +12,19 @@
         .card p.subtitle { color: #7f8c8d; text-align: center; font-size: 14px; margin-bottom: 25px; }
         .form-group { margin-bottom: 18px; text-align: right; }
         label { display: block; font-weight: 600; margin-bottom: 6px; color: #34495e; font-size: 14px; }
-        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 15px; transition: border-color 0.2s; }
+        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 15px; }
         input:focus { border-color: #3498db; outline: none; }
         
         .btn-submit { background: #3498db; color: white; border: none; padding: 14px; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
         .btn-submit:hover { background: #2980b9; }
         .btn-submit:disabled { background: #bdc3c7; cursor: not-allowed; }
 
-        /* النافذة المنبثقة (Modal) - مخفية تماماً بحالة الافتراض */
+        /* النافذة المنبثقة Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); justify-content: center; align-items: center; z-index: 1000; }
         .modal-content { background: #ffffff; padding: 25px; border-radius: 12px; max-width: 360px; width: 90%; text-align: right; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
         .captcha-img-container { height: 60px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 12px 0; overflow: hidden; }
         .captcha-img-container img { max-height: 100%; max-width: 100%; object-fit: contain; }
 
-        /* منطقة النتائج والرسائل */
         .status-msg { text-align: center; padding: 12px; border-radius: 8px; margin-top: 15px; display: none; font-size: 14px; }
         .status-loading { background: #e0f2fe; color: #0369a1; }
         .status-error { background: #fee2e2; color: #b91c1c; }
@@ -50,7 +49,7 @@
         <div id="statusMsg" class="status-msg"></div>
 
         <div id="resultContainer">
-            <label>النتائج القادمة من الموقع الأصلي:</label>
+            <label style="font-weight:bold; color:#2c3e50;">النتائج القادمة من الموقع الأصلي:</label>
             <div class="result-box">
                 <pre id="jsonResult" style="margin: 0; white-space: pre-wrap; word-break: break-all;"></pre>
             </div>
@@ -77,7 +76,6 @@
     <script>
         let currentPhone = '';
 
-        // 1. عند النقر على زر البحث الرئيسي
         async function startSearch(e) {
             e.preventDefault();
 
@@ -94,11 +92,10 @@
             statusMsg.style.display = 'block';
             submitBtn.disabled = true;
 
-            // إرسال الطلب الأولي (بدون كابتشا)
+            // إرسال الطلب الأولي بدون كابتشا لجلب الصورة
             await sendRequest({ phoneNumber: currentPhone });
         }
 
-        // 2. إرسال الطلب للسيرفر
         async function sendRequest(payload) {
             const statusMsg = document.getElementById('statusMsg');
             const submitBtn = document.getElementById('submitBtn');
@@ -112,18 +109,18 @@
 
                 const result = await res.json();
 
-                // إذا طلب الموقع الكابتشا -> نفتح النافذة المنبثقة ونضع فيها صورة الكابتشا
+                // إذا اشترط الكابتشا -> نفتح النافذة المنبثقة
                 if (result.requireCaptcha) {
                     statusMsg.style.display = 'none';
                     document.getElementById('modalCaptchaImg').src = result.captchaImage;
                     document.getElementById('captchaModal').style.display = 'flex';
                 } 
-                // إذا نجح البحث وعادت البيانات
+                // إذا عادت النتائج بنجاح
                 else if (result.success) {
                     closeCaptchaModal();
                     statusMsg.style.display = 'none';
                     document.getElementById('jsonResult').innerText = JSON.stringify(result.data, null, 2);
-                    document.getElementById('resultContainer').style.display = 'block';
+                    resultContainer.style.display = 'block';
                     submitBtn.disabled = false;
                 } 
                 else {
@@ -135,12 +132,11 @@
             } catch (err) {
                 closeCaptchaModal();
                 statusMsg.className = 'status-msg status-error';
-                statusMsg.innerText = 'حدث خطأ في الاتصال بالسيرفر';
+                statusMsg.innerText = 'حدث خطأ في الاتصال بالسيرفر الوسيط';
                 submitBtn.disabled = false;
             }
         }
 
-        // 3. عند كتابة الكابتشا داخل النافذة المنبثقة والنقر على "تأكيد"
         async function submitCaptcha() {
             const captchaCode = document.getElementById('modalCaptchaInput').value.trim();
             if (!captchaCode) {
@@ -148,14 +144,14 @@
                 return;
             }
 
-            // إخفاء النافذة المنبثقة وإعادة إرسال الرقم + الكابتشا
             closeCaptchaModal();
             
             const statusMsg = document.getElementById('statusMsg');
             statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري التحقق من الكابتشا وجلب النتائج...';
+            statusMsg.innerText = 'جاري التحقق وتنفيذ طلب التقرير...';
             statusMsg.style.display = 'block';
 
+            // إرسال الرقم + الكابتشا لتشغيل السلسلة الثلاثية
             await sendRequest({
                 phoneNumber: currentPhone,
                 captchaCode: captchaCode

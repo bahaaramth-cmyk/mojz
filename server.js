@@ -43,22 +43,21 @@ app.post('/api/settings', (req, res) => {
     }
 });
 
-// المسار الرئيسي للبحث بإنشاء جلسة معزولة وخاصة بالطلب الحقيقي
 app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode } = req.body;
     const config = getSettings();
 
-    // 💡 إنشاء جلسة كوكيز جيدة تماماً وخاصة بهذا الطلب والزائر فقط
-    const freshJar = new CookieJar();
-    const isolatedClient = wrapper(axios.create({
-        jar: freshJar,
+    // جلسة مستقلة لكل طلب
+    const jar = new CookieJar();
+    const client = wrapper(axios.create({
+        jar,
         headers: config.headers || {},
         timeout: 15000,
         withCredentials: true
     }));
 
     // -------------------------------------------------------------
-    // المرحلة 1: إذا لم يرسل الزائر كابتشا، نفتح جلسة جديدة ونجلب الصورة
+    // المرحلة 1: طلب صورة الكابتشا وتوليد الجلسة
     // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
@@ -66,8 +65,8 @@ app.post('/api/proxy-search', async (req, res) => {
         }
 
         try {
-            console.log('--- بدء جلسة جديدة: جلب صورة الكابتشا ---');
-            const imgRes = await isolatedClient.get(config.captchaImgUrl);
+            console.log('--- [المرحلة 1] جلب صورة الكابتشا وتوليد جلسة جديدة ---');
+            const imgRes = await client.get(config.captchaImgUrl);
             let base64Image = '';
 
             if (typeof imgRes.data === 'object' && imgRes.data !== null) {
@@ -92,38 +91,50 @@ app.post('/api/proxy-search', async (req, res) => {
             });
 
         } catch (err) {
+            console.error('خطأ في جلب الكابتشا:', err.message);
             return res.status(500).json({ 
                 success: false, 
-                message: 'خطأ في جلب صورة الكابتشا بالجلسة الجديدة',
+                message: 'خطأ أثناء جلب صورة الكابتشا من الموقع الأصلي',
                 errorDetails: err.response ? err.response.data : err.message
             });
         }
     }
 
     // -------------------------------------------------------------
-    // المرحلة 2: تنفيذ السلسلة كاملة بنفس الجلسة المعزولة
+    // المرحلة 2: التحقق والتنفيذ لجميع الخطوات بعد إدخال الكابتشا
     // -------------------------------------------------------------
     try {
-        // 1. إعادة توليد الجلسة لتجربة التمرير أو جلب صورة جديدة سريعاً لربط الكوكيز
-        if (config.captchaImgUrl) {
-            console.log('--- جلسة مستقلة: ربط الجلسة بطلب صورة أولاً ---');
-            await isolatedClient.get(config.captchaImgUrl);
-        }
-
-        // 2. إرسال الكابتشا لمسار /i
-        console.log('--- جلسة مستقلة: 1. التحقق من الكابتشا (/i) ---');
         const captchaFieldName = config.captchaField || 'captcha';
+        const phoneFieldName = config.phoneField || 'phone';
+
+        // 1. إرسال طلب التحقق من الكابتشا إلى /i
+        console.log(`--- [المرحلة 2-1] إرسال الرمز (${captchaCode}) إلى ${config.verifyCaptchaUrl} ---`);
+        
         const verifyPayload = { [captchaFieldName]: captchaCode };
 
-        const verifyRes = await isolatedClient.post(config.verifyCaptchaUrl, verifyPayload, {
-            headers: {
-                'Content-Type': 'application/json',
-                ...(config.headers || {})
-            }
-        });
+        let verifyRes;
+        try {
+            verifyRes = await client.post(config.verifyCaptchaUrl, verifyPayload, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(config.headers || {})
+                }
+            });
+        } catch (postErr) {
+            // إذا فشل كـ JSON، نجرّب الإرسال كـ Form URL Encoded
+            console.log('إعادة المحاولة بصيغة URL-Encoded...');
+            const params = new URLSearchParams();
+            params.append(captchaFieldName, captchaCode);
 
-        // طباعة الرد للتأكد
-        console.log('رد مسار /i:', verifyRes.data);
+            verifyRes = await client.post(config.verifyCaptchaUrl, params, {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    ...(config.headers || {})
+                }
+            });
+        }
+
+        console.log('استجابة مسار /i:', verifyRes.data);
 
         const isSuccess = verifyRes.data && (verifyRes.data.result === 'Success' || verifyRes.data.success === true);
         if (!isSuccess) {
@@ -135,35 +146,35 @@ app.post('/api/proxy-search', async (req, res) => {
             });
         }
 
-        // 3. إنشاء طلب البحث /createRequest
-        console.log('--- جلسة مستقلة: 2. إنشاء الطلب (/createRequest) ---');
-        const createPayload = { [config.phoneField || 'phone']: phoneNumber };
-        const createRes = await isolatedClient.post(config.createRequestUrl, createPayload);
+        // 2. إنشاء طلب البحث /createRequest
+        console.log(`--- [المرحلة 2-2] إنشاء طلب البحث للرقم (${phoneNumber}) ---`);
+        const createPayload = { [phoneFieldName]: phoneNumber };
+        const createRes = await client.post(config.createRequestUrl, createPayload);
 
-        // 4. جلب التقرير /getreport
-        console.log('--- جلسة مستقلة: 3. جلب التقرير (/getreport) ---');
+        // 3. جلب التقرير والنتائج /getreport
+        console.log('--- [المرحلة 2-3] جلب التقرير والنتائج ---');
         const reportPayload = { 
-            [config.phoneField || 'phone']: phoneNumber,
+            [phoneFieldName]: phoneNumber,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
-        const reportRes = await isolatedClient.post(config.getReportUrl, reportPayload);
+        const reportRes = await client.post(config.getReportUrl, reportPayload);
 
-        // إرجاع النتائج بنجاح
         return res.json({
             success: true,
             data: reportRes.data
         });
 
     } catch (err) {
-        const status = err.response ? err.response.status : 'No Status';
-        const errorData = err.response ? err.response.data : err.message;
-        console.error(`خطأ الجلسة (${status}):`, errorData);
+        const status = err.response ? err.response.status : 'No Response';
+        const responseData = err.response ? err.response.data : err.message;
+        
+        console.error(`خطأ في تنفيذ السلسلة (رمز ${status}):`, responseData);
 
-        return res.status(500).json({
+        return res.status(status === 'No Response' ? 500 : status).json({
             success: false,
-            message: `فشل التنفيذ في الجلسة المخصصة (رمز: ${status})`,
+            message: `فشل طلب السلسلة عند الخطوة الحالية (رمز الخطأ: ${status})`,
             status: status,
-            errorDetails: errorData
+            errorDetails: responseData
         });
     }
 });

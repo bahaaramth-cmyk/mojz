@@ -1,7 +1,7 @@
 {
   "name": "mojz-proxy",
   "version": "1.0.0",
-  "description": "Real-time API Proxy and Middleware with Control Panel",
+  "description": "Mojz API Proxy & Relay Middleware with Control Panel",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

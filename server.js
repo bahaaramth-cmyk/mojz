@@ -44,27 +44,19 @@ app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie } = req.body;
     const config = getSettings();
 
-    // -------------------------------------------------------------
-    // المرحلة 1: جلب صورة الكابتشا باستخدام رابط ديناميكي متجدد
-    // -------------------------------------------------------------
+    // 1. جلب صورة الكابتشا
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
             return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
         }
 
         try {
-            // إضافة مُميّز زمني (Timestamp) للرابط لمنع الكاش ولضمان توليد رابط ديناميكي جديد
             const dynamicCaptchaUrl = config.captchaImgUrl.includes('?') 
                 ? `${config.captchaImgUrl}&_t=${Date.now()}` 
                 : `${config.captchaImgUrl}?_t=${Date.now()}`;
 
-            console.log('--- جلب الكابتشا برابط ديناميكي:', dynamicCaptchaUrl);
-            
-            const imgRes = await axios.get(dynamicCaptchaUrl, {
-                headers: config.headers || {}
-            });
+            const imgRes = await axios.get(dynamicCaptchaUrl, { headers: config.headers || {} });
 
-            // استخراج الكوكيز الخاصة بهذه الجلسة تحديداً
             const setCookieHeader = imgRes.headers['set-cookie'];
             const originalCookie = setCookieHeader ? setCookieHeader.join('; ') : '';
 
@@ -92,77 +84,64 @@ app.post('/api/proxy-search', async (req, res) => {
             });
 
         } catch (err) {
-            console.error('خطأ الكابتشا الديناميكية:', err.message);
             return res.status(500).json({ 
                 success: false, 
-                message: 'فشل جلب صورة الكابتشا الديناميكية',
+                message: 'فشل جلب صورة الكابتشا',
                 errorDetails: err.response ? err.response.data : err.message
             });
         }
     }
 
-    // -------------------------------------------------------------
-    // المرحلة 2: مرونة التنفيذ (محاولة التحقق أو التجاوز التلقائي)
-    // -------------------------------------------------------------
+    // 2. معالجة السلسلة
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
-
         const reqHeaders = {
             ...(config.headers || {}),
             ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
         };
 
-        // الخطوة A: تجربة إرسال الكابتشا إلى /i (إن وجدت)
         if (config.verifyCaptchaUrl) {
-            console.log('--- 1. تجربة التحقق من الكابتشا عبر /i ---');
             try {
-                const verifyPayload = { [captchaFieldName]: captchaCode };
-                const verifyRes = await axios.post(config.verifyCaptchaUrl, verifyPayload, { headers: reqHeaders });
-                console.log('استجابة مسار /i:', verifyRes.data);
+                await axios.post(config.verifyCaptchaUrl, { [captchaFieldName]: captchaCode }, { headers: reqHeaders });
             } catch (vErr) {
-                console.log('تنبيه: تم تجاوز مسار /i أو لم يطلب السيرفر التحقق المباشر منه.');
+                console.log('تجاوز مسار /i');
             }
         }
 
-        // الخطوة B: إنشاء طلب البحث مباشرة عبر /createRequest
-        console.log('--- 2. إنشاء طلب البحث (/createRequest) ---');
-        const createPayload = { 
-            [phoneFieldName]: phoneNumber,
-            [captchaFieldName]: captchaCode // نرفق الكابتشا هنا أيضاً تحسباً
-        };
+        const createPayload = { [phoneFieldName]: phoneNumber, [captchaFieldName]: captchaCode };
         const createRes = await axios.post(config.createRequestUrl, createPayload, { headers: reqHeaders });
 
-        // الخطوة C: جلب التقرير /getreport
-        console.log('--- 3. جلب التقرير والنتائج (/getreport) ---');
         const reportPayload = { 
             [phoneFieldName]: phoneNumber,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
         const reportRes = await axios.post(config.getReportUrl, reportPayload, { headers: reqHeaders });
 
-        return res.json({
-            success: true,
-            data: reportRes.data
-        });
+        return res.json({ success: true, data: reportRes.data });
 
     } catch (err) {
-        const status = err.response ? err.response.status : 'No Response';
-        const responseData = err.response ? err.response.data : err.message;
-        
-        console.error(`خطأ تنفيذ السلسلة (${status}):`, responseData);
-
-        return res.status(status === 'No Response' ? 500 : status).json({
+        const status = err.response ? err.response.status : 500;
+        return res.status(status).json({
             success: false,
-            message: `فشل طلب السلسلة عند خطوة جلب البيانات (رمز: ${status})`,
-            status: status,
-            errorDetails: responseData
+            message: `فشل جلب البيانات (رمز: ${status})`,
+            errorDetails: err.response ? err.response.data : err.message
         });
     }
 });
 
-app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+// المسارات مع فحص وجود الملفات لمنع الشاشة البيضاء
+app.get('/dashboard', (req, res) => {
+    const file = path.join(__dirname, 'dashboard.html');
+    if (fs.existsSync(file)) res.sendFile(file);
+    else res.send('ملف dashboard.html غير موجود');
+});
+
+app.get('/', (req, res) => {
+    const file = path.join(__dirname, 'index.html');
+    if (fs.existsSync(file)) res.sendFile(file);
+    else res.send('ملف index.html غير موجود في المستودع');
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Mojz Server running on port ${PORT}`));

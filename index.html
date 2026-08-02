@@ -75,7 +75,7 @@
     <script>
         let currentPhone = '';
         let currentSessionCookie = '';
-        let currentRequestTimestamp = ''; // حفظ الـ Timestamp الخاص بطلب الكابتشا الحالية
+        let currentRequestTimestamp = '';
 
         async function startSearch(e) {
             e.preventDefault();
@@ -112,7 +112,7 @@
                 if (result.requireCaptcha) {
                     statusMsg.style.display = 'none';
                     if (result.sessionCookie) currentSessionCookie = result.sessionCookie;
-                    if (result.requestTimestamp) currentRequestTimestamp = result.requestTimestamp; // التمسك بالـ Timestamp المولد
+                    if (result.requestTimestamp) currentRequestTimestamp = result.requestTimestamp;
 
                     document.getElementById('modalCaptchaImg').src = result.captchaImage;
                     document.getElementById('captchaModal').style.display = 'flex';
@@ -149,10 +149,9 @@
             
             const statusMsg = document.getElementById('statusMsg');
             statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري التحقق وتنفيذ طلب التقرير...';
+            statusMsg.innerText = 'جاري إرسال الطلب وإحضار البيانات...';
             statusMsg.style.display = 'block';
 
-            // إرسال البيانات بنفس الـ Timestamp المطابق للصورة
             await sendRequest({
                 phoneNumber: currentPhone,
                 captchaCode: captchaCode,

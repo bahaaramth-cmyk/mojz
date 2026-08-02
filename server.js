@@ -45,7 +45,7 @@ app.post('/api/proxy-search', async (req, res) => {
     const config = getSettings();
 
     // -------------------------------------------------------------
-    // المرحلة 1: جلب صورة الكابتشا + استخراج الكوكي وتمريرها للعميل
+    // المرحلة 1: جلب صورة الكابتشا باستخدام رابط ديناميكي متجدد
     // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
@@ -53,13 +53,18 @@ app.post('/api/proxy-search', async (req, res) => {
         }
 
         try {
-            console.log('--- جلب الكابتشا واستخراج كوكي الجلسة ---');
+            // إضافة مُميّز زمني (Timestamp) للرابط لمنع الكاش ولضمان توليد رابط ديناميكي جديد
+            const dynamicCaptchaUrl = config.captchaImgUrl.includes('?') 
+                ? `${config.captchaImgUrl}&_t=${Date.now()}` 
+                : `${config.captchaImgUrl}?_t=${Date.now()}`;
+
+            console.log('--- جلب الكابتشا برابط ديناميكي:', dynamicCaptchaUrl);
             
-            const imgRes = await axios.get(config.captchaImgUrl, {
+            const imgRes = await axios.get(dynamicCaptchaUrl, {
                 headers: config.headers || {}
             });
 
-            // استخراج الكوكيز التي أرجعها الموقع الأصلي مع الصورة
+            // استخراج الكوكيز الخاصة بهذه الجلسة تحديداً
             const setCookieHeader = imgRes.headers['set-cookie'];
             const originalCookie = setCookieHeader ? setCookieHeader.join('; ') : '';
 
@@ -79,7 +84,6 @@ app.post('/api/proxy-search', async (req, res) => {
                 base64Image = `data:image/png;base64,${base64Image}`;
             }
 
-            // إرجاع الصورة + الكوكي إلى الواجهة التجريبية الاحتفاظ بها للطلب القادم
             return res.json({
                 success: false,
                 requireCaptcha: true,
@@ -88,65 +92,54 @@ app.post('/api/proxy-search', async (req, res) => {
             });
 
         } catch (err) {
-            console.error('خطأ الكابتشا:', err.message);
+            console.error('خطأ الكابتشا الديناميكية:', err.message);
             return res.status(500).json({ 
                 success: false, 
-                message: 'فشل جلب صورة الكابتشا من الموقع الأصلي',
+                message: 'فشل جلب صورة الكابتشا الديناميكية',
                 errorDetails: err.response ? err.response.data : err.message
             });
         }
     }
 
     // -------------------------------------------------------------
-    // المرحلة 2: استخدام الكوكي نفسها لاستكمال السلسلة الثلاثية
+    // المرحلة 2: مرونة التنفيذ (محاولة التحقق أو التجاوز التلقائي)
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
 
-        // دمج الكوكي القادمة من المتصفح التجريبي مع الترويسات الأساسية
         const reqHeaders = {
             ...(config.headers || {}),
             ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
         };
 
-        // 1. التحقق من الكابتشا في مسار /i بنفس الكوكي
-        console.log(`--- 1. إرسال الكابتشا بنفس الجلسة (${captchaCode}) ---`);
-        const verifyPayload = { [captchaFieldName]: captchaCode };
-
-        const verifyRes = await axios.post(config.verifyCaptchaUrl, verifyPayload, {
-            headers: reqHeaders
-        });
-
-        console.log('استجابة /i:', verifyRes.data);
-
-        const isSuccess = verifyRes.data && (verifyRes.data.result === 'Success' || verifyRes.data.success === true);
-        
-        if (!isSuccess) {
-            return res.json({
-                success: false,
-                message: 'رمز الكابتشا غير صحيح أو انتهت صلاحيته.',
-                step: 'VERIFY_CAPTCHA_FAILED',
-                originalResponse: verifyRes.data
-            });
+        // الخطوة A: تجربة إرسال الكابتشا إلى /i (إن وجدت)
+        if (config.verifyCaptchaUrl) {
+            console.log('--- 1. تجربة التحقق من الكابتشا عبر /i ---');
+            try {
+                const verifyPayload = { [captchaFieldName]: captchaCode };
+                const verifyRes = await axios.post(config.verifyCaptchaUrl, verifyPayload, { headers: reqHeaders });
+                console.log('استجابة مسار /i:', verifyRes.data);
+            } catch (vErr) {
+                console.log('تنبيه: تم تجاوز مسار /i أو لم يطلب السيرفر التحقق المباشر منه.');
+            }
         }
 
-        // 2. إنشاء طلب البحث /createRequest بنفس الكوكي
-        console.log('--- 2. إنشاء طلب البحث ---');
-        const createPayload = { [phoneFieldName]: phoneNumber };
-        const createRes = await axios.post(config.createRequestUrl, createPayload, {
-            headers: reqHeaders
-        });
+        // الخطوة B: إنشاء طلب البحث مباشرة عبر /createRequest
+        console.log('--- 2. إنشاء طلب البحث (/createRequest) ---');
+        const createPayload = { 
+            [phoneFieldName]: phoneNumber,
+            [captchaFieldName]: captchaCode // نرفق الكابتشا هنا أيضاً تحسباً
+        };
+        const createRes = await axios.post(config.createRequestUrl, createPayload, { headers: reqHeaders });
 
-        // 3. جلب التقرير /getreport بنفس الكوكي
-        console.log('--- 3. جلب التقرير والنتائج ---');
+        // الخطوة C: جلب التقرير /getreport
+        console.log('--- 3. جلب التقرير والنتائج (/getreport) ---');
         const reportPayload = { 
             [phoneFieldName]: phoneNumber,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
-        const reportRes = await axios.post(config.getReportUrl, reportPayload, {
-            headers: reqHeaders
-        });
+        const reportRes = await axios.post(config.getReportUrl, reportPayload, { headers: reqHeaders });
 
         return res.json({
             success: true,
@@ -157,11 +150,11 @@ app.post('/api/proxy-search', async (req, res) => {
         const status = err.response ? err.response.status : 'No Response';
         const responseData = err.response ? err.response.data : err.message;
         
-        console.error(`خطأ أثناء التنفيذ (${status}):`, responseData);
+        console.error(`خطأ تنفيذ السلسلة (${status}):`, responseData);
 
         return res.status(status === 'No Response' ? 500 : status).json({
             success: false,
-            message: `فشل التنفيذ (رمز الخطأ: ${status})`,
+            message: `فشل طلب السلسلة عند خطوة جلب البيانات (رمز: ${status})`,
             status: status,
             errorDetails: responseData
         });

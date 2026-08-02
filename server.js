@@ -19,13 +19,14 @@ function getSettings() {
             getReportUrl: '', 
             phoneField: 'phone',
             captchaField: 'captcha',
+            extraPayload: {},
             headers: {} 
         };
     }
     try {
         return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
-        return { captchaImgUrl: '', verifyCaptchaUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'phone', captchaField: 'captcha', headers: {} };
+        return { captchaImgUrl: '', verifyCaptchaUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'phone', captchaField: 'captcha', extraPayload: {}, headers: {} };
     }
 }
 
@@ -44,18 +45,19 @@ app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie } = req.body;
     const config = getSettings();
 
-    // 1. جلب صورة الكابتشا
+    // 1. جلب صورة الكابتشا وتمرير الكوكي
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
-            return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
+            return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا من لوحة التحكم' });
         }
 
         try {
-            const dynamicCaptchaUrl = config.captchaImgUrl.includes('?') 
+            const dynamicUrl = config.captchaImgUrl.includes('?') 
                 ? `${config.captchaImgUrl}&_t=${Date.now()}` 
                 : `${config.captchaImgUrl}?_t=${Date.now()}`;
 
-            const imgRes = await axios.get(dynamicCaptchaUrl, { headers: config.headers || {} });
+            console.log('--- جلب الكابتشا واستخراج كوكي الجلسة ---');
+            const imgRes = await axios.get(dynamicUrl, { headers: config.headers || {} });
 
             const setCookieHeader = imgRes.headers['set-cookie'];
             const originalCookie = setCookieHeader ? setCookieHeader.join('; ') : '';
@@ -86,13 +88,13 @@ app.post('/api/proxy-search', async (req, res) => {
         } catch (err) {
             return res.status(500).json({ 
                 success: false, 
-                message: 'فشل جلب صورة الكابتشا',
+                message: 'خطأ في جلب صورة الكابتشا',
                 errorDetails: err.response ? err.response.data : err.message
             });
         }
     }
 
-    // 2. معالجة السلسلة
+    // 2. إرسال الكابتشا + المعرفات المطلوبة (app_key, device_id...)
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
@@ -101,18 +103,30 @@ app.post('/api/proxy-search', async (req, res) => {
             ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
         };
 
+        // دمج المعاملات الإضافية (مثل app_key و device_id)
+        const baseExtraData = config.extraPayload || {};
+
         if (config.verifyCaptchaUrl) {
-            try {
-                await axios.post(config.verifyCaptchaUrl, { [captchaFieldName]: captchaCode }, { headers: reqHeaders });
-            } catch (vErr) {
-                console.log('تجاوز مسار /i');
-            }
+            console.log(`--- 1. إرسال الكابتشا بنفس الجلسة (${captchaCode}) ---`);
+            const verifyPayload = { 
+                ...baseExtraData,
+                [captchaFieldName]: captchaCode 
+            };
+            const verifyRes = await axios.post(config.verifyCaptchaUrl, verifyPayload, { headers: reqHeaders });
+            console.log('استجابة /i:', verifyRes.data);
         }
 
-        const createPayload = { [phoneFieldName]: phoneNumber, [captchaFieldName]: captchaCode };
+        console.log('--- 2. إنشاء طلب البحث ---');
+        const createPayload = { 
+            ...baseExtraData,
+            [phoneFieldName]: phoneNumber,
+            [captchaFieldName]: captchaCode 
+        };
         const createRes = await axios.post(config.createRequestUrl, createPayload, { headers: reqHeaders });
 
+        console.log('--- 3. جلب التقرير والنتائج ---');
         const reportPayload = { 
+            ...baseExtraData,
             [phoneFieldName]: phoneNumber,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
@@ -122,25 +136,27 @@ app.post('/api/proxy-search', async (req, res) => {
 
     } catch (err) {
         const status = err.response ? err.response.status : 500;
+        const errData = err.response ? err.response.data : err.message;
+        console.error(`خطأ أثناء التنفيذ (${status}):`, errData);
+
         return res.status(status).json({
             success: false,
-            message: `فشل جلب البيانات (رمز: ${status})`,
-            errorDetails: err.response ? err.response.data : err.message
+            message: `فشل التنفيذ (رمز الخطأ: ${status})`,
+            errorDetails: errData
         });
     }
 });
 
-// المسارات مع فحص وجود الملفات لمنع الشاشة البيضاء
 app.get('/dashboard', (req, res) => {
     const file = path.join(__dirname, 'dashboard.html');
     if (fs.existsSync(file)) res.sendFile(file);
-    else res.send('ملف dashboard.html غير موجود');
+    else res.status(404).send('ملف dashboard.html غير موجود');
 });
 
 app.get('/', (req, res) => {
     const file = path.join(__dirname, 'index.html');
     if (fs.existsSync(file)) res.sendFile(file);
-    else res.send('ملف index.html غير موجود في المستودع');
+    else res.status(404).send('ملف index.html غير موجود');
 });
 
 const PORT = process.env.PORT || 3000;

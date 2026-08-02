@@ -3,7 +3,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
-const crypto = require('crypto'); // مكتبة توليد المعرفات العشوائية
+const crypto = require('crypto');
+const https = require('https');
 
 const app = express();
 app.use(express.json());
@@ -11,6 +12,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
+
+// وكيل يتيح تجاوز مشاكل SSL الحاصلة بين Render والسيرفر الأصلي
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 function getSettings() {
     if (!fs.existsSync(CONFIG_PATH)) {
@@ -31,10 +35,8 @@ function getSettings() {
     }
 }
 
-// دالة لتوليد device_id عشوائي تماماً لكل زائر محاكي للموقع الأصلي
 function generateDynamicDeviceId() {
-    const randomUuid = crypto.randomUUID();
-    return `g:${randomUuid}`;
+    return `g:${crypto.randomUUID()}`;
 }
 
 app.get('/health', (req, res) => res.status(200).send('Server is running healthy!'));
@@ -52,14 +54,14 @@ app.post('/api/settings', (req, res) => {
 app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie, captchaUuid } = req.body;
     const config = getSettings();
-
-    // توليد device_id فريد ولحظي لهذا الطلب بالتحديد
     const dynamicDeviceId = generateDynamicDeviceId();
 
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
         'x-api-version': 'v2',
         'Origin': 'https://xxxtestxxx.com',
         'Referer': 'https://xxxtestxxx.com/mojaz/',
@@ -73,7 +75,9 @@ app.post('/api/proxy-search', async (req, res) => {
         ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
     };
 
+    // -------------------------------------------------------------
     // 1. جلب صورة الكابتشا
+    // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
             return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
@@ -81,11 +85,17 @@ app.post('/api/proxy-search', async (req, res) => {
 
         try {
             const currentTimestamp = Date.now().toString();
-            const baseUrl = config.captchaImgUrl.split('?')[0];
-            const fullCaptchaUrl = `${baseUrl}?${currentTimestamp}`;
+            // تنظيف الرابط من أي علامات استفهام سابقة
+            const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
+            const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] جلب الكابتشا بـ Device ID عشوائي: ${dynamicDeviceId} ---`);
-            const imgRes = await axios.get(fullCaptchaUrl, { headers: baseHeaders });
+            console.log(`--- [1] جلب الكابتشا من: ${fullCaptchaUrl} ---`);
+
+            const imgRes = await axios.get(fullCaptchaUrl, { 
+                headers: baseHeaders,
+                httpsAgent: httpsAgent,
+                timeout: 10000 
+            });
 
             const setCookieHeader = imgRes.headers['set-cookie'];
             const newCookie = setCookieHeader ? setCookieHeader.join('; ') : sessionCookie || '';
@@ -120,25 +130,31 @@ app.post('/api/proxy-search', async (req, res) => {
             });
 
         } catch (err) {
+            const errStatusCode = err.response ? err.response.status : 'NO_RESPONSE';
+            const errDetails = err.response ? err.response.data : err.message;
+            console.error(`!!! خطأ جلب الكابتشا (${errStatusCode}):`, errDetails);
+
             return res.status(500).json({ 
                 success: false, 
-                message: 'فشل جلب صورة الكابتشا من الموقع الأصلي',
-                errorDetails: err.response ? err.response.data : err.message
+                message: `فشل جلب الكابتشا من السيرفر الأصلي (رمز: ${errStatusCode})`,
+                errorDetails: errDetails
             });
         }
     }
 
-    // 2. إرسال createRequest و getReportPrice بدمج المعرفات الديناميكية
+    // -------------------------------------------------------------
+    // 2. إرسال createRequest و getReportPrice
+    // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'captcha';
         const phoneFieldName = config.phoneField || 'phone';
 
         const requestHeaders = {
             ...baseHeaders,
+            'Content-Type': 'application/json',
             ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
         };
 
-        // دمج الـ device_id المولد ديناميكياً مع باقي البيانات
         const mergedPayload = {
             "device_id": dynamicDeviceId,
             "deviceId": dynamicDeviceId,
@@ -150,9 +166,9 @@ app.post('/api/proxy-search', async (req, res) => {
         // الخطوة 1: createRequest
         console.log(`--- [2] إرسال createRequest بالـ Device ID: ${dynamicDeviceId} ---`);
         const createRes = await axios.post(
-            config.createRequestUrl, 
+            config.createRequestUrl.trim(), 
             mergedPayload, 
-            { headers: requestHeaders }
+            { headers: requestHeaders, httpsAgent: httpsAgent }
         );
 
         // الخطوة 2: getReportPrice
@@ -163,9 +179,9 @@ app.post('/api/proxy-search', async (req, res) => {
 
         console.log('--- [3] إرسال طلب getReportPrice ---');
         const reportRes = await axios.post(
-            config.getReportUrl, 
+            config.getReportUrl.trim(), 
             reportPayload, 
-            { headers: requestHeaders }
+            { headers: requestHeaders, httpsAgent: httpsAgent }
         );
 
         return res.json({ success: true, data: reportRes.data });

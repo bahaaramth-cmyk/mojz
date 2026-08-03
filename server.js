@@ -37,7 +37,6 @@ function generateDynamicDeviceId() {
     return `g:${crypto.randomUUID()}`;
 }
 
-// دالة لتنظيف وتحديث الكوكيز بدون تكرار الأسماء
 function mergeAndDeduplicateCookies(cookieMap, setCookieHeader) {
     if (!setCookieHeader) return;
     const cookiesArray = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
@@ -109,13 +108,13 @@ app.post('/api/proxy-search', async (req, res) => {
     };
 
     // -------------------------------------------------------------
-    // 1. جلب الكابتشا وتنظيف كوكيز الجلسة
+    // 1. مرحلة جلب الكابتشا (تُنفذ فقط عندما لا يرسل المستخدم رمز الكابتشا)
     // -------------------------------------------------------------
     if (!captchaCode) {
         try {
             const cookieMap = new Map();
 
-            // A. الصفحة الرئيسية
+            // A. فتح الصفحة الرئيسية لتوليد الجلسة
             try {
                 const mainPageRes = await axios.get(`${targetOrigin}/mojaz/`, {
                     headers: baseHeaders,
@@ -129,12 +128,12 @@ app.post('/api/proxy-search', async (req, res) => {
 
             const initialCookieString = buildCookieString(cookieMap);
 
-            // B. الكابتشا
+            // B. طلب صورة الكابتشا
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] Fetching Captcha: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] Fetching New Captcha for Client: ${fullCaptchaUrl} ---`);
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
                 headers: {
@@ -145,9 +144,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 timeout: 10000 
             });
 
-            // تحديث خريطة الكوكيز بالأصناف الجديدة (تستبدل المكرر تلقائياً)
             mergeAndDeduplicateCookies(cookieMap, imgRes.headers['set-cookie']);
-
             const finalSessionCookie = buildCookieString(cookieMap);
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
@@ -171,7 +168,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 base64Image = `data:image/png;base64,${base64Image}`;
             }
 
-            console.log(`--- Cleaned Session Cookies: ${finalSessionCookie} ---`);
+            console.log(`--- Generated Session Cookie: ${finalSessionCookie} ---`);
 
             return res.json({
                 success: false,
@@ -195,16 +192,18 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. إرسال createRequest بالكوكيز الفريدة والمطابقة
+    // 2. مرحلة إرسال createRequest (تستخدم الكوكي الأصلية المربوطة بالصورة القادمة من المتصفح)
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'jcaptcha';
         const phoneFieldName = config.phoneField || 'sequenceNumber';
 
+        console.log(`--- [2] Submitting Search using Client Bound Cookie ---`);
+
         const requestHeaders = {
             ...baseHeaders,
             'Content-Type': 'application/json',
-            ...(sessionCookie ? { 'Cookie': sessionCookie } : {}),
+            'Cookie': sessionCookie || '',
             ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
         };
 
@@ -218,7 +217,7 @@ app.post('/api/proxy-search', async (req, res) => {
             ...(config.extraPayload || {})
         };
 
-        console.log(`--- [2] Sending createRequest ---`, JSON.stringify(mergedPayload));
+        console.log(`--- Payload Sent ---`, JSON.stringify(mergedPayload));
         const createRes = await axios.post(
             config.createRequestUrl.trim(), 
             mergedPayload, 

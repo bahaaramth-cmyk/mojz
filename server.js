@@ -60,13 +60,13 @@ app.post('/api/proxy-search', async (req, res) => {
         return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
     }
 
-    // استخراج النطاق الحقيقي تلقائياً من رابط الكابتشا
+    // استخراج النطاق الحقيقي تلقائياً من الرابط المضبوط باللوحة
     let targetOrigin = 'https://mojaz.com.sa';
     try {
         const parsedUrl = new URL(config.captchaImgUrl.trim());
         targetOrigin = parsedUrl.origin;
     } catch (e) {
-        console.error('خطأ في استخراج Origin من الرابط');
+        console.error('خطأ في استخراج النطاق من الرابط');
     }
 
     const jar = new CookieJar();
@@ -95,14 +95,13 @@ app.post('/api/proxy-search', async (req, res) => {
     };
 
     // -------------------------------------------------------------
-    // 1. مرحلة جلب الكابتشا
+    // 1. جلب صورة الكابتشا
     // -------------------------------------------------------------
     if (!captchaCode) {
         try {
-            // تهيئة الجلسة بزيارة الصفحة الرئيسية للنطاق الحقيقي
             console.log(`--- [0] بدء تهيئة الجلسة من النطاق الحقيقي: ${targetOrigin}/mojaz/ ---`);
             await client.get(`${targetOrigin}/mojaz/`, { headers: baseHeaders, timeout: 8000 }).catch(() => {
-                console.log('تنبيه: فشل فتح الصفحة الرئيسية، سيتم المحاولة المباشرة مع الكابتشا...');
+                console.log('تنبيه: تم تجاوز فتح الصفحة الرئيسية، سيتم المحاولة المباشرة مع الكابتشا...');
             });
 
             const currentTimestamp = Date.now().toString();
@@ -161,7 +160,7 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. مرحلة إرسال createRequest و getReportPrice
+    // 2. إرسال createRequest و getReportPrice
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'captcha';

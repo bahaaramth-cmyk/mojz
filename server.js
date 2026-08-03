@@ -86,9 +86,6 @@ app.post('/api/proxy-search', async (req, res) => {
         ...(config.headers || {})
     };
 
-    // -------------------------------------------------------------
-    // 1. جلب صورة الكابتشا
-    // -------------------------------------------------------------
     if (!captchaCode) {
         try {
             if (!currentCookies) {
@@ -101,7 +98,7 @@ app.post('/api/proxy-search', async (req, res) => {
                     });
                     const initSetCookie = initRes.headers['set-cookie'];
                     if (initSetCookie) {
-                        currentCookies = initSetCookie.join('; ');
+                        currentCookies = initSetCookie.map(c => c.split(';')[0]).join('; ');
                     }
                 } catch (initErr) {
                     console.log('تنبيه أثناء تهيئة الجلسة الأولية');
@@ -125,7 +122,8 @@ app.post('/api/proxy-search', async (req, res) => {
 
             const setCookieHeader = imgRes.headers['set-cookie'];
             if (setCookieHeader) {
-                currentCookies = (currentCookies ? currentCookies + '; ' : '') + setCookieHeader.join('; ');
+                const newCookiesFormatted = setCookieHeader.map(c => c.split(';')[0]).join('; ');
+                currentCookies = currentCookies ? `${currentCookies}; ${newCookiesFormatted}` : newCookiesFormatted;
             }
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
@@ -141,100 +139,4 @@ app.post('/api/proxy-search', async (req, res) => {
                     const parsed = JSON.parse(imgRes.data);
                     base64Image = parsed.imageB64 || parsed.captcha || parsed.image || '';
                 } catch (e) {
-                    base64Image = imgRes.data;
-                }
-            }
-
-            if (base64Image && !base64Image.startsWith('data:image')) {
-                base64Image = `data:image/png;base64,${base64Image}`;
-            }
-
-            return res.json({
-                success: false,
-                requireCaptcha: true,
-                captchaImage: base64Image,
-                sessionCookie: currentCookies,
-                captchaUuid: extractedUuid
-            });
-
-        } catch (err) {
-            const errStatusCode = err.response ? err.response.status : 'NO_RESPONSE';
-            const errDetails = err.response ? err.response.data : err.message;
-            console.error(`!!! خطأ جلب الكابتشا (${errStatusCode}):`, errDetails);
-
-            return res.status(500).json({ 
-                success: false, 
-                message: `فشل جلب الكابتشا من السيرفر الأصلي (رمز: ${errStatusCode})`,
-                errorDetails: errDetails
-            });
-        }
-    }
-
-    // -------------------------------------------------------------
-    // 2. إرسال createRequest مع بناء الـ Payload المطلوب بالضبط
-    // -------------------------------------------------------------
-    try {
-        const captchaFieldName = config.captchaField || 'jcaptcha';
-        const phoneFieldName = config.phoneField || 'sequenceNumber';
-
-        const requestHeaders = {
-            ...baseHeaders,
-            'Content-Type': 'application/json',
-            ...(sessionCookie ? { 'Cookie': sessionCookie } : {}),
-            ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
-        };
-
-        // بناء الـ Body المكون من الكابتشا ومصفوفة vehicles الحقيقية
-        const mergedPayload = {
-            [captchaFieldName]: captchaCode,
-            "vehicles": [
-                {
-                    [phoneFieldName]: phoneNumber
-                }
-            ],
-            ...(config.extraPayload || {})
-        };
-
-        // 1. createRequest
-        console.log(`--- [2] إرسال createRequest بالـ Payload المطابق ---`, JSON.stringify(mergedPayload));
-        const createRes = await axios.post(
-            config.createRequestUrl.trim(), 
-            mergedPayload, 
-            { headers: requestHeaders, httpsAgent: httpsAgent }
-        );
-
-        console.log('استجابة createRequest الناجحة:', createRes.data);
-
-        // 2. getReportPrice
-        const reportPayload = {
-            ...mergedPayload,
-            ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
-        };
-
-        console.log('--- [3] إرسال طلب getReportPrice ---');
-        const reportRes = await axios.post(
-            config.getReportUrl.trim(), 
-            reportPayload, 
-            { headers: requestHeaders, httpsAgent: httpsAgent }
-        );
-
-        return res.json({ success: true, data: reportRes.data });
-
-    } catch (err) {
-        const status = err.response ? err.response.status : 500;
-        const errData = err.response ? err.response.data : err.message;
-        console.error(`--- خطأ تنفيذ الطلب (${status}) ---`, errData);
-
-        return res.status(status).json({
-            success: false,
-            message: `فشل التنفيذ من السيرفر الأصلي (رمز: ${status})`,
-            errorDetails: errData
-        });
-    }
-});
-
-app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+                    base64Image = imgRes

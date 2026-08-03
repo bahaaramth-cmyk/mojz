@@ -1,308 +1,248 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>الموقع التجريبي - الاستعلام اللحظي</title>
-    <style>
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .card { background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); width: 100%; max-width: 550px; }
-        .card h2 { margin-top: 0; color: #2c3e50; text-align: center; margin-bottom: 8px; }
-        .card p.subtitle { color: #7f8c8d; text-align: center; font-size: 14px; margin-bottom: 25px; }
-        .form-group { margin-bottom: 18px; text-align: right; }
-        label { display: block; font-weight: 600; margin-bottom: 6px; color: #34495e; font-size: 14px; }
-        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 15px; }
-        input:focus { border-color: #008B7D; outline: none; }
-        
-        .btn-submit { background: #008B7D; color: white; border: none; padding: 14px; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        .btn-submit:hover { background: #00766A; }
-        .btn-submit:disabled { background: #bdc3c7; cursor: not-allowed; }
+const express = require('express');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const cors = require('cors');
+const https = require('https');
 
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); justify-content: center; align-items: center; z-index: 1000; }
-        .modal-content { background: #ffffff; padding: 25px; border-radius: 12px; max-width: 360px; width: 90%; text-align: right; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-        .captcha-img-container { height: 60px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 12px 0; overflow: hidden; }
-        .captcha-img-container img { max-height: 100%; max-width: 100%; object-fit: contain; }
+const app = express();
 
-        .status-msg { text-align: center; padding: 12px; border-radius: 8px; margin-top: 15px; display: none; font-size: 14px; }
-        .status-loading { background: #e0f2fe; color: #0369a1; }
-        .status-error { background: #fee2e2; color: #b91c1c; }
-        
-        /* تنسيقات عرض بيانات المركبة */
-        #resultContainer { margin-top: 25px; display: none; text-align: right; }
-        .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
-        .vehicle-header h3 { margin: 0; font-size: 18px; font-weight: bold; }
-        .vehicle-header span { background: rgba(255,255,255,0.2); font-size: 12px; padding: 4px 10px; border-radius: 20px; }
-        
-        .vehicle-grid { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .grid-item { background: #f8fafc; border: 1px solid #edf2f7; padding: 12px; border-radius: 8px; }
-        .grid-item.full { grid-column: span 2; }
-        .item-label { display: block; font-size: 11px; color: #718096; font-weight: 600; margin-bottom: 4px; }
-        .item-val { display: block; font-size: 14px; color: #1a202c; font-weight: bold; direction: ltr; text-align: right; min-height: 20px; }
-        .item-val.rtl { direction: rtl; }
-    </style>
-</head>
-<body>
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
 
-    <div class="card">
-        <h2>بوابة الاستعلام</h2>
-        <p class="subtitle">محاكاة البحث اللحظي عبر السيرفر الوسيط</p>
+// إتاحة المجلد الحالي كملفات استاتيكية
+app.use(express.static(__dirname));
 
-        <form id="searchForm" onsubmit="startSearch(event)">
-            <div class="form-group">
-                <label for="phoneNumber">الرقم التسلسلي / رقم الهيكل:</label>
-                <input type="text" id="phoneNumber" placeholder="أدخل الرقم للبحث..." required autocomplete="off">
-            </div>
-            <button type="submit" id="submitBtn" class="btn-submit">بحث الآن</button>
-        </form>
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-        <div id="statusMsg" class="status-msg"></div>
+const sessionUuidStore = new Map();
 
-        <div id="resultContainer"></div>
-    </div>
+function getSettings() {
+    if (!fs.existsSync(CONFIG_PATH)) {
+        return { 
+            captchaImgUrl: '', 
+            createRequestUrl: '', 
+            getReportUrl: '', 
+            phoneField: 'sequenceNumber',
+            captchaField: 'jcaptcha',
+            extraPayload: {},
+            headers: {} 
+        };
+    }
+    try {
+        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    } catch (e) {
+        return { captchaImgUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'sequenceNumber', captchaField: 'jcaptcha', extraPayload: {}, headers: {} };
+    }
+}
 
-    <div id="captchaModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 style="margin-top:0; color:#2c3e50;">التحقق من الكابتشا</h3>
-            <p style="font-size:13px; color:#666; margin-bottom:10px;">يرجى إدخال الرمز الظاهر بالصورة لإكمال البحث:</p>
-            
-            <div class="captcha-img-container">
-                <img id="modalCaptchaImg" src="" alt="رمز الكابتشا">
-            </div>
-
-            <div class="form-group">
-                <input type="text" id="modalCaptchaInput" placeholder="أدخل الرمز هنا..." autocomplete="off">
-            </div>
-
-            <button type="button" onclick="submitCaptcha()" class="btn-submit">تأكيد وإرسال</button>
-        </div>
-    </div>
-
-    <script>
-        let currentPhone = '';
-        let currentSessionCookie = '';
-        let currentCaptchaUuid = '';
-
-        async function startSearch(e) {
-            e.preventDefault();
-
-            currentPhone = document.getElementById('phoneNumber').value.trim();
-            if (!currentPhone) return;
-
-            const statusMsg = document.getElementById('statusMsg');
-            const resultContainer = document.getElementById('resultContainer');
-            const submitBtn = document.getElementById('submitBtn');
-
-            resultContainer.style.display = 'none';
-            statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري الاتصال بالموقع الأصلي...';
-            statusMsg.style.display = 'block';
-            submitBtn.disabled = true;
-
-            await sendRequest({ phoneNumber: currentPhone });
+function mergeAndDeduplicateCookies(cookieMap, setCookieHeader) {
+    if (!setCookieHeader) return;
+    const cookiesArray = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+    
+    cookiesArray.forEach(cookieStr => {
+        const firstPart = cookieStr.split(';')[0].trim();
+        const eqIdx = firstPart.indexOf('=');
+        if (eqIdx !== -1) {
+            const name = firstPart.substring(0, eqIdx).trim();
+            const value = firstPart.substring(eqIdx + 1).trim();
+            cookieMap.set(name, value);
         }
+    });
+}
 
-        async function sendRequest(payload) {
-            const statusMsg = document.getElementById('statusMsg');
-            const submitBtn = document.getElementById('submitBtn');
+function buildCookieString(cookieMap) {
+    const pairs = [];
+    cookieMap.forEach((val, key) => {
+        pairs.push(`${key}=${val}`);
+    });
+    return pairs.join('; ');
+}
+
+app.get('/health', (req, res) => res.status(200).send('Server is running healthy!'));
+
+app.get('/api/settings', (req, res) => res.json(getSettings()));
+
+app.post('/api/settings', (req, res) => {
+    try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(req.body, null, 2));
+        res.json({ success: true, message: 'Settings saved successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to save settings' });
+    }
+});
+
+app.post('/api/proxy-search', async (req, res) => {
+    const { phoneNumber, captchaCode, sessionCookie, captchaUuid } = req.body;
+    const config = getSettings();
+
+    if (!config.captchaImgUrl) {
+        return res.status(400).json({ success: false, message: 'Please set captchaImgUrl in dashboard first' });
+    }
+
+    let targetOrigin = 'https://mojaz.com.sa';
+    try {
+        const parsedUrl = new URL(config.captchaImgUrl.trim());
+        targetOrigin = parsedUrl.origin;
+    } catch (e) {
+        console.error('Error parsing target origin');
+    }
+
+    const baseHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'ar,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'x-api-version': 'v2',
+        'Origin': targetOrigin,
+        'Referer': `${targetOrigin}/mojaz/`,
+        'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        ...(config.headers || {})
+    };
+
+    // 1. طلب جلب الكابتشا
+    if (!captchaCode) {
+        try {
+            const cookieMap = new Map();
 
             try {
-                const res = await fetch('/api/proxy-search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                const mainPageRes = await axios.get(`${targetOrigin}/mojaz/`, {
+                    headers: baseHeaders,
+                    httpsAgent: httpsAgent,
+                    timeout: 6000
                 });
-
-                const result = await res.json();
-
-                if (result.requireCaptcha) {
-                    statusMsg.style.display = 'none';
-                    if (result.sessionCookie) currentSessionCookie = result.sessionCookie;
-                    if (result.captchaUuid) currentCaptchaUuid = result.captchaUuid;
-
-                    document.getElementById('modalCaptchaImg').src = result.captchaImage;
-                    document.getElementById('captchaModal').style.display = 'flex';
-                } 
-                else {
-                    closeCaptchaModal();
-                    
-                    // التفتيش واستخراج بيانات المركبة من createRequest حصراً
-                    const reqObj = findVehicleRequestData(result);
-
-                    if (reqObj) {
-                        statusMsg.style.display = 'none';
-                        renderVehicleCard(reqObj);
-                    } else {
-                        statusMsg.className = 'status-msg status-error';
-                        statusMsg.innerText = result.message || 'تعذر العثور على مواصفات المركبة (يرجى التأكد من رابط الاستجابة بالسيرفر الوسيط)';
-                        statusMsg.style.display = 'block';
-                    }
-                    submitBtn.disabled = false;
-                }
-            } catch (err) {
-                closeCaptchaModal();
-                statusMsg.className = 'status-msg status-error';
-                statusMsg.innerText = 'حدث خطأ في الاتصال بالسيرفر الوسيط';
-                statusMsg.style.display = 'block';
-                submitBtn.disabled = false;
-            }
-        }
-
-        async function submitCaptcha() {
-            const captchaCode = document.getElementById('modalCaptchaInput').value.trim();
-            if (!captchaCode) {
-                alert('يرجى إدخال رمز الكابتشا أولاً');
-                return;
+                mergeAndDeduplicateCookies(cookieMap, mainPageRes.headers['set-cookie']);
+            } catch (e) {
+                console.log('Main page handshake skipped');
             }
 
-            closeCaptchaModal();
-            
-            const statusMsg = document.getElementById('statusMsg');
-            statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري إرسال الطلب وإحضار البيانات...';
-            statusMsg.style.display = 'block';
+            const initialCookieString = buildCookieString(cookieMap);
 
-            await sendRequest({
-                phoneNumber: currentPhone,
-                captchaCode: captchaCode,
-                sessionCookie: currentSessionCookie,
-                captchaUuid: currentCaptchaUuid
+            const currentTimestamp = Date.now().toString();
+            const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
+            const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
+
+            const imgRes = await axios.get(fullCaptchaUrl, { 
+                headers: {
+                    ...baseHeaders,
+                    ...(initialCookieString ? { 'Cookie': initialCookieString } : {})
+                },
+                httpsAgent: httpsAgent,
+                timeout: 10000 
             });
 
-            document.getElementById('modalCaptchaInput').value = '';
-        }
+            mergeAndDeduplicateCookies(cookieMap, imgRes.headers['set-cookie']);
+            const finalSessionCookie = buildCookieString(cookieMap);
 
-        function closeCaptchaModal() {
-            document.getElementById('captchaModal').style.display = 'none';
-        }
+            let extractedUuid = imgRes.headers['captcha-uuid'] || 
+                                imgRes.headers['captcha_uuid'] || 
+                                imgRes.headers['x-captcha-uuid'] || 
+                                imgRes.headers['captcha-id'] || '';
 
-        // دالة تفتيش متقدمة تتخطى كائنات الأسعار وتبحث عن كائن المركبة المباشر
-        function findVehicleRequestData(node) {
-            if (!node) return null;
-
-            if (typeof node === 'string') {
-                try { node = JSON.parse(node); } catch (e) { return null; }
+            if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
+                extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || imgRes.data.captcha_uuid || '';
             }
 
-            if (typeof node !== 'object' || node === null) return null;
-
-            // التأكد من أن الكائن يحتوي على الخصائص الخاصة بالمركبة من createRequest
-            if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) {
-                return node;
+            if (extractedUuid) {
+                sessionUuidStore.set(finalSessionCookie, extractedUuid);
             }
 
-            // الفحص بداخل الخاصية request
-            if (node.request && typeof node.request === 'object') {
-                let res = findVehicleRequestData(node.request);
-                if (res) return res;
-            }
-
-            // الفحص في المصفوفات والكائنات الفرعية
-            if (Array.isArray(node)) {
-                for (let item of node) {
-                    let res = findVehicleRequestData(item);
-                    if (res) return res;
-                }
-            } else {
-                for (let k in node) {
-                    if (Object.prototype.hasOwnProperty.call(node, k)) {
-                        // تجاهل كائن الأسعار كي لا يتوقف الفحص عنده
-                        if (k === 'servicePrice') continue;
-                        let res = findVehicleRequestData(node[k]);
-                        if (res) return res;
-                    }
+            let base64Image = '';
+            if (typeof imgRes.data === 'object' && imgRes.data !== null) {
+                base64Image = imgRes.data.imageB64 || imgRes.data.captcha || imgRes.data.image || '';
+            } else if (typeof imgRes.data === 'string') {
+                try {
+                    const parsed = JSON.parse(imgRes.data);
+                    base64Image = parsed.imageB64 || parsed.captcha || parsed.image || '';
+                } catch (e) {
+                    base64Image = imgRes.data;
                 }
             }
 
-            return null;
-        }
-
-        // دالة رسم بطاقة تفاصيل المركبة
-        function renderVehicleCard(req) {
-            const resultContainer = document.getElementById('resultContainer');
-            req = req || {};
-
-            function cleanVal(v) {
-                if (v === null || v === undefined) return '-';
-                const str = String(v).trim();
-                if (str === '0000' || str === '0' || str === 'null' || str === '') return '-';
-                return str;
+            if (base64Image && !base64Image.startsWith('data:image')) {
+                base64Image = `data:image/png;base64,${base64Image}`;
             }
 
-            const maker = cleanVal(req.vehicleMaker);
-            const model = cleanVal(req.vehicleModel);
-            const year = cleanVal(req.modelYear);
-            const seq = cleanVal(req.sequenceNumber);
-            const vin = cleanVal(req.vin);
-            const customId = cleanVal(req.customId);
-            const expiryDate = cleanVal(req.expiryDate);
-            const requestId = cleanVal(req.id);
-            const source = cleanVal(req.source);
-            
-            // تركيب رقم اللوحة
-            let plateStr = cleanVal(req.plateDesc);
-            if (plateStr === '-') {
-                const l1 = cleanVal(req.letterOne);
-                const l2 = cleanVal(req.letterTwo);
-                const l3 = cleanVal(req.letterThree);
-                const pNum = cleanVal(req.plateNumber);
-                if (l1 !== '-' || l2 !== '-' || l3 !== '-' || pNum !== '-') {
-                    plateStr = `${l1 !== '-' ? l1 : ''} ${l2 !== '-' ? l2 : ''} ${l3 !== '-' ? l3 : ''} ${pNum !== '-' ? pNum : ''}`.trim();
+            return res.json({
+                success: false,
+                requireCaptcha: true,
+                captchaImage: base64Image,
+                sessionCookie: finalSessionCookie,
+                captchaUuid: extractedUuid
+            });
+
+        } catch (err) {
+            const errStatusCode = err.response ? err.response.status : 'NO_RESPONSE';
+            const errDetails = err.response ? err.response.data : err.message;
+
+            return res.status(500).json({ 
+                success: false, 
+                message: `Failed to fetch captcha (Code: ${errStatusCode})`,
+                errorDetails: errDetails
+            });
+        }
+    }
+
+    // 2. طلب إرسال createRequest مباشرة
+    try {
+        const captchaFieldName = config.captchaField || 'jcaptcha';
+        const phoneFieldName = config.phoneField || 'sequenceNumber';
+        const activeUuid = captchaUuid || sessionUuidStore.get(sessionCookie || '') || '';
+
+        const requestHeaders = {
+            ...baseHeaders,
+            'Content-Type': 'application/json',
+            'Cookie': sessionCookie || '',
+            ...(activeUuid ? { 
+                'captcha-uuid': activeUuid, 
+                'captcha_uuid': activeUuid,
+                'x-captcha-uuid': activeUuid 
+            } : {})
+        };
+
+        const mergedPayload = {
+            [captchaFieldName]: captchaCode,
+            "vehicles": [
+                {
+                    [phoneFieldName]: phoneNumber
                 }
-            }
+            ],
+            ...(activeUuid ? { "captchaUuid": activeUuid, "captcha_uuid": activeUuid } : {}),
+            ...(config.extraPayload || {})
+        };
 
-            const title = (maker !== '-' || model !== '-') ? `${maker !== '-' ? maker : ''} ${model !== '-' ? model : ''}`.trim() : 'تفاصيل المركبة المستعلم عنها';
+        const createRes = await axios.post(
+            config.createRequestUrl.trim(), 
+            mergedPayload, 
+            { headers: requestHeaders, httpsAgent: httpsAgent }
+        );
 
-            resultContainer.innerHTML = `
-                <div class="vehicle-card">
-                    <div class="vehicle-header">
-                        <h3>${title}</h3>
-                        ${year !== '-' ? `<span>سنة الصنع: ${year}</span>` : ''}
-                    </div>
-                    <div class="vehicle-grid">
-                        <div class="grid-item">
-                            <span class="item-label">الشركة المصنعة</span>
-                            <span class="item-val rtl">${maker}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">موديل المركبة</span>
-                            <span class="item-val rtl">${model}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">الرقم التسلسلي</span>
-                            <span class="item-val">${seq}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">رقم اللوحة</span>
-                            <span class="item-val rtl">${plateStr}</span>
-                        </div>
-                        <div class="grid-item full">
-                            <span class="item-label">رقم الهيكل (VIN)</span>
-                            <span class="item-val">${vin}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">الرقم الجمركي</span>
-                            <span class="item-val">${customId}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">تاريخ الانتهاء</span>
-                            <span class="item-val rtl">${expiryDate}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">رقم الطلب</span>
-                            <span class="item-val">${requestId}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">المصدر</span>
-                            <span class="item-val rtl">${source}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
+        sessionUuidStore.delete(sessionCookie || '');
 
-            resultContainer.style.display = 'block';
-        }
-    </script>
-</body>
-</html>
+        return res.json({ success: true, data: createRes.data });
+
+    } catch (err) {
+        const status = err.response ? err.response.status : 500;
+        const errData = err.response ? err.response.data : err.message;
+
+        return res.status(status).json({
+            success: false,
+            message: `Execution failed from target server (Code: ${status})`,
+            errorDetails: errData
+        });
+    }
+});
+
+app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

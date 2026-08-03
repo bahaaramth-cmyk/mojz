@@ -117,6 +117,7 @@
             let currentSessionCookie = '';
             let currentCaptchaUuid = '';
 
+            // دالة جلب الكابتشا من السيرفر
             async function fetchCaptcha() {
                 modalCaptchaImg.src = '';
                 modalCaptchaImg.alt = 'جاري جلب الكابتشا...';
@@ -140,6 +141,7 @@
                 }
             }
 
+            // فتح النافذة المنبثقة عند كتابة الرقم التسلسلي والضغط على زر الطلب
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const sequenceVal = sequenceInput.value.trim();
@@ -161,6 +163,7 @@
                 captchaModal.classList.add('hidden');
             });
 
+            // تأكيد الطلب وإرسال الكابتشا للسيرفر
             modalSubmitBtn.addEventListener('click', async () => {
                 const captchaCode = modalCaptchaInput.value.trim();
                 const sequenceVal = sequenceInput.value.trim();
@@ -189,17 +192,7 @@
                     captchaModal.classList.add('hidden');
 
                     if (resData.success) {
-                        // استخراج بيانات السيارة القادمة من الاستجابة
-                        let reqData = null;
-                        if (Array.isArray(resData.data) && resData.data.length > 0) {
-                            reqData = resData.data[0].request || resData.data[0];
-                        } else if (resData.data && resData.data.request) {
-                            reqData = resData.data.request;
-                        } else {
-                            reqData = resData.data;
-                        }
-
-                        renderVehicleCard(reqData);
+                        renderVehicleCard(resData.data);
                     } else {
                         alert('خطأ: ' + (resData.message || 'فشل جلب التقرير، يرجى المحاولة مرة أخرى.'));
                     }
@@ -211,27 +204,56 @@
                 }
             });
 
-            // دالة رسم بطاقة تفاصيل المركبة المطابقة لموجز
-            function renderVehicleCard(info) {
-                if (!info) return;
+            // دالة التفتيش الذكية في الـ JSON لاستخراج الحقول بغض النظر عن موقعها أو أسمائها
+            function findProp(obj, keys) {
+                if (!obj || typeof obj !== 'object') return null;
+                
+                if (Array.isArray(obj)) {
+                    for (let item of obj) {
+                        let res = findProp(item, keys);
+                        if (res) return res;
+                    }
+                    return null;
+                }
 
-                const maker = info.vehicleMaker || 'غير محدد';
-                const model = info.vehicleModel || 'غير محدد';
-                const year = info.modelYear || 'غير محدد';
-                const vin = info.vin || '-';
-                const seq = info.sequenceNumber || '-';
-                const customId = info.customId || '-';
+                for (let key of keys) {
+                    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
+                        return obj[key];
+                    }
+                }
+
+                for (let k in obj) {
+                    if (typeof obj[k] === 'object') {
+                        let res = findProp(obj[k], keys);
+                        if (res) return res;
+                    }
+                }
+                return null;
+            }
+
+            // دالة رسم بطاقات تفاصيل المركبة المطابقة لموقع موجز
+            function renderVehicleCard(rawData) {
+                if (!rawData) return;
+
+                const maker = findProp(rawData, ['vehicleMaker', 'maker', 'makerName', 'vehicleMakerAr']) || 'غير محدد';
+                const model = findProp(rawData, ['vehicleModel', 'model', 'modelName', 'vehicleModelAr']) || '';
+                const year = findProp(rawData, ['modelYear', 'year', 'manufactureYear']) || 'غير محدد';
+                const vin = findProp(rawData, ['vin', 'chassisNumber']) || '-';
+                const seq = findProp(rawData, ['sequenceNumber', 'seqNo', 'sequenceNo']) || '-';
+                const customId = findProp(rawData, ['customId', 'customCardNumber', 'customsNumber']) || '-';
+
+                const makerFirstChar = maker !== 'غير محدد' ? maker.trim().charAt(0) : 'م';
 
                 vehicleCardContainer.innerHTML = `
-                    <div class="bg-gradient-to-br from-teal-50/50 to-white p-5 rounded-2xl border border-teal-100 space-y-4">
+                    <div class="bg-gradient-to-br from-teal-50/60 to-white p-5 rounded-2xl border border-teal-100 space-y-4 shadow-sm text-right" dir="rtl">
                         <div class="flex justify-between items-center border-b border-teal-100 pb-3">
                             <div>
-                                <span class="bg-[#008B7D] text-white text-[11px] font-bold px-2.5 py-1 rounded-md">مركبة مسجلة</span>
-                                <h3 class="text-xl font-black text-gray-900 mt-2">${maker} ${model}</h3>
-                                <p class="text-xs text-gray-500 font-semibold">سنة الصنع: ${year}</p>
+                                <span class="bg-[#008B7D] text-white text-[11px] font-bold px-2.5 py-1 rounded-md inline-block mb-1">مركبة مسجلة</span>
+                                <h3 class="text-xl font-black text-gray-900">${maker} ${model}</h3>
+                                <p class="text-xs text-gray-500 font-semibold mt-0.5">سنة الصنع: ${year}</p>
                             </div>
-                            <div class="w-14 h-14 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center p-2">
-                                <span class="text-2xl font-black text-[#005A52]">${maker.charAt(0)}</span>
+                            <div class="w-14 h-14 bg-white rounded-xl shadow-sm border border-gray-200 flex items-center justify-center p-2">
+                                <span class="text-2xl font-black text-[#005A52]">${makerFirstChar}</span>
                             </div>
                         </div>
 
@@ -250,7 +272,7 @@
                             </div>
                         </div>
 
-                        <button class="w-full py-3 bg-[#008B7D] hover:bg-[#00766A] text-white font-bold text-sm rounded-xl transition shadow-md">
+                        <button type="button" class="w-full py-3 bg-[#008B7D] hover:bg-[#00766A] text-white font-bold text-sm rounded-xl transition shadow-md">
                             عرض التقرير الشامل 📄
                         </button>
                     </div>

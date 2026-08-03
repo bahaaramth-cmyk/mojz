@@ -12,8 +12,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
-
-// وكيل يتيح تجاوز مشاكل SSL الحاصلة بين Render والسيرفر الأصلي
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 function getSettings() {
@@ -56,6 +54,8 @@ app.post('/api/proxy-search', async (req, res) => {
     const config = getSettings();
     const dynamicDeviceId = generateDynamicDeviceId();
 
+    let currentCookies = sessionCookie || '';
+
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
@@ -71,12 +71,11 @@ app.post('/api/proxy-search', async (req, res) => {
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
-        ...(config.headers || {}),
-        ...(sessionCookie ? { 'Cookie': sessionCookie } : {})
+        ...(config.headers || {})
     };
 
     // -------------------------------------------------------------
-    // 1. جلب صورة الكابتشا
+    // 1. مرحلة جلب الكابتشا (مع التهيئة الأولية للجلسة لتجاوز 403)
     // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
@@ -84,21 +83,45 @@ app.post('/api/proxy-search', async (req, res) => {
         }
 
         try {
+            // خطوة أولى: زيارة الصفحة الرئيسية للحصول على كوكيز الحماية الأساسية (Bypass 403)
+            if (!currentCookies) {
+                console.log('--- [0] بدء تهيئة الجلسة وجلب كوكيز الحماية من الصفحة الرئيسية ---');
+                try {
+                    const initRes = await axios.get('https://xxxtestxxx.com/mojaz/', {
+                        headers: baseHeaders,
+                        httpsAgent: httpsAgent,
+                        timeout: 8000
+                    });
+                    const initSetCookie = initRes.headers['set-cookie'];
+                    if (initSetCookie) {
+                        currentCookies = initSetCookie.join('; ');
+                        console.log('تم الحصول على كوكيز الجلسة الأولية بنجاح');
+                    }
+                } catch (initErr) {
+                    console.log('تنبيه أثناء تهيئة الجلسة:', initErr.message);
+                }
+            }
+
             const currentTimestamp = Date.now().toString();
-            // تنظيف الرابط من أي علامات استفهام سابقة
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
             console.log(`--- [1] جلب الكابتشا من: ${fullCaptchaUrl} ---`);
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
-                headers: baseHeaders,
+                headers: {
+                    ...baseHeaders,
+                    ...(currentCookies ? { 'Cookie': currentCookies } : {})
+                },
                 httpsAgent: httpsAgent,
                 timeout: 10000 
             });
 
+            // دمج الكوكيز الجديدة القادمة مع الكوكيز السابقة
             const setCookieHeader = imgRes.headers['set-cookie'];
-            const newCookie = setCookieHeader ? setCookieHeader.join('; ') : sessionCookie || '';
+            if (setCookieHeader) {
+                currentCookies = (currentCookies ? currentCookies + '; ' : '') + setCookieHeader.join('; ');
+            }
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
@@ -125,7 +148,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 success: false,
                 requireCaptcha: true,
                 captchaImage: base64Image,
-                sessionCookie: newCookie,
+                sessionCookie: currentCookies,
                 captchaUuid: extractedUuid
             });
 
@@ -152,6 +175,7 @@ app.post('/api/proxy-search', async (req, res) => {
         const requestHeaders = {
             ...baseHeaders,
             'Content-Type': 'application/json',
+            ...(sessionCookie ? { 'Cookie': sessionCookie } : {}),
             ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
         };
 
@@ -164,7 +188,7 @@ app.post('/api/proxy-search', async (req, res) => {
         };
 
         // الخطوة 1: createRequest
-        console.log(`--- [2] إرسال createRequest بالـ Device ID: ${dynamicDeviceId} ---`);
+        console.log(`--- [2] إرسال createRequest ---`);
         const createRes = await axios.post(
             config.createRequestUrl.trim(), 
             mergedPayload, 

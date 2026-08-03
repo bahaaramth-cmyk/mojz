@@ -66,8 +66,6 @@ app.post('/api/proxy-search', async (req, res) => {
         console.error('Error parsing target origin');
     }
 
-    let currentCookies = sessionCookie || '';
-
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
@@ -86,6 +84,9 @@ app.post('/api/proxy-search', async (req, res) => {
         ...(config.headers || {})
     };
 
+    // -------------------------------------------------------------
+    // 1. جلب الكابتشا وحفظ كل الكوكيز الصادرة بوضوح
+    // -------------------------------------------------------------
     if (!captchaCode) {
         try {
             const currentTimestamp = Date.now().toString();
@@ -100,9 +101,13 @@ app.post('/api/proxy-search', async (req, res) => {
                 timeout: 10000 
             });
 
-            const setCookieHeader = imgRes.headers['set-cookie'];
-            if (setCookieHeader) {
-                currentCookies = setCookieHeader.map(c => c.split(';')[0]).join('; ');
+            // استخراج وتجميع كافة أسطر Set-Cookie المبعوثة من السيرفر
+            let fullSessionCookie = '';
+            const rawSetCookies = imgRes.headers['set-cookie'];
+            if (rawSetCookies && Array.isArray(rawSetCookies)) {
+                fullSessionCookie = rawSetCookies.map(c => c.split(';')[0]).join('; ');
+            } else if (rawSetCookies) {
+                fullSessionCookie = rawSetCookies.split(';')[0];
             }
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
@@ -130,7 +135,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 success: false,
                 requireCaptcha: true,
                 captchaImage: base64Image,
-                sessionCookie: currentCookies,
+                sessionCookie: fullSessionCookie,
                 captchaUuid: extractedUuid
             });
 
@@ -147,6 +152,9 @@ app.post('/api/proxy-search', async (req, res) => {
         }
     }
 
+    // -------------------------------------------------------------
+    // 2. إرسال createRequest بنفس كوكيز الجلسة المستخرجة
+    // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'jcaptcha';
         const phoneFieldName = config.phoneField || 'sequenceNumber';

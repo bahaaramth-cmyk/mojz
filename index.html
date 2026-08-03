@@ -28,7 +28,7 @@
         .status-loading { background: #e0f2fe; color: #0369a1; }
         .status-error { background: #fee2e2; color: #b91c1c; }
         
-        /* تنسيقات عرض بيانات المركبة المنسقة */
+        /* تصميم بطاقة تفاصيل المركبة */
         #resultContainer { margin-top: 25px; display: none; text-align: right; }
         .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
@@ -115,6 +115,7 @@
                 });
 
                 const result = await res.json();
+                console.log("استجابة السيرفر الكاملة:", result);
 
                 if (result.requireCaptcha) {
                     statusMsg.style.display = 'none';
@@ -126,14 +127,15 @@
                 } 
                 else {
                     closeCaptchaModal();
-                    statusMsg.style.display = 'none';
                     
-                    const reqObj = getVehicleRequest(result);
+                    const reqObj = findVehicleRequestObject(result);
+                    
                     if (reqObj) {
+                        statusMsg.style.display = 'none';
                         renderVehicleCard(reqObj);
                     } else {
                         statusMsg.className = 'status-msg status-error';
-                        statusMsg.innerText = result.message || 'لم يتم العثور على بيانات المركبة';
+                        statusMsg.innerText = result.message || 'لم يتم العثور على بيانات المركبة في الاستجابة';
                         statusMsg.style.display = 'block';
                     }
                     submitBtn.disabled = false;
@@ -175,45 +177,43 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة استخراج شجرية شاملة تجد كائن request بداخل الاستجابة مهما كان التغليف أو العمق
-        function getVehicleRequest(obj) {
-            if (!obj) return null;
+        // دالة التفتيش الدقيقة: تركز على الكائن الذي يحوي حقول المركبة الأساسية وتتجاهل المفاتيح الفارغة
+        function findVehicleRequestObject(node) {
+            if (!node) return null;
 
-            if (typeof obj === 'string') {
-                try { obj = JSON.parse(obj); } catch (e) { return null; }
+            if (typeof node === 'string') {
+                try { node = JSON.parse(node); } catch (e) { return null; }
             }
 
-            if (Array.isArray(obj)) {
-                for (let item of obj) {
-                    let res = getVehicleRequest(item);
-                    if (res) return res;
-                }
-                return null;
+            if (typeof node !== 'object' || node === null) return null;
+
+            // 1. إذا كان الكائن الحالي يحتوي مباشرة على خصائص المركبة
+            if (node.vehicleMaker || node.sequenceNumber || node.vin) {
+                return node;
             }
 
-            if (typeof obj === 'object' && obj !== null) {
-                // إذا كان الكائن الحالي يحتوي على خصائص request مباشرة
-                if (obj.vehicleMaker !== undefined || obj.vin !== undefined || obj.sequenceNumber !== undefined) {
-                    return obj;
-                }
+            // 2. إذا كان يحتوي على الخاصية request مباشرة
+            if (node.request && typeof node.request === 'object') {
+                const reqMatch = findVehicleRequestObject(node.request);
+                if (reqMatch) return reqMatch;
+            }
 
-                if (obj.request && typeof obj.request === 'object') {
-                    let res = getVehicleRequest(obj.request);
-                    if (res) return res;
+            // 3. البحث في المصفوفات
+            if (Array.isArray(node)) {
+                for (let item of node) {
+                    const match = findVehicleRequestObject(item);
+                    if (match) return match;
                 }
-
-                if (obj.data) {
-                    let res = getVehicleRequest(obj.data);
-                    if (res) return res;
-                }
-
-                for (let key in obj) {
-                    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                        let res = getVehicleRequest(obj[key]);
-                        if (res) return res;
+            } else {
+                // 4. البحث في باقي الخصائص الكائنية
+                for (let key in node) {
+                    if (Object.prototype.hasOwnProperty.call(node, key)) {
+                        const match = findVehicleRequestObject(node[key]);
+                        if (match) return match;
                     }
                 }
             }
+
             return null;
         }
 

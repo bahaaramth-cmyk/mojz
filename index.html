@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>الموقع التجريبي - الاستعلام اللحظي</title>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -30,11 +31,9 @@
         
         #resultContainer { margin-top: 25px; display: none; text-align: right; }
         .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        
         .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
         .header-title-box { display: flex; align-items: center; gap: 14px; }
         
-        /* مربع الشعار */
         .maker-logo-container { width: 54px; height: 54px; background: #ffffff; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
         .maker-logo-container img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
         .maker-logo-container .logo-fallback { font-size: 24px; font-weight: 900; color: #005A52; }
@@ -87,6 +86,22 @@
     </div>
 
     <script>
+        // 1. توليد أو جلب التوكين الثابت الخاص بالزائر
+        function getVisitorToken() {
+            let token = localStorage.getItem('user_visitor_token');
+            if (!token) {
+                token = 'USER-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+                localStorage.setItem('user_visitor_token', token);
+            }
+            return token;
+        }
+
+        const visitorToken = getVisitorToken();
+
+        // 2. تسجيل تواجد الزائر لحظياً لدى اللوحة
+        const socket = io();
+        socket.emit('register_visitor', visitorToken);
+
         let currentPhone = '';
         let currentSessionCookie = '';
         let currentCaptchaUuid = '';
@@ -107,7 +122,7 @@
             statusMsg.style.display = 'block';
             submitBtn.disabled = true;
 
-            await sendRequest({ phoneNumber: currentPhone });
+            await sendRequest({ phoneNumber: currentPhone, visitorToken: visitorToken });
         }
 
         async function sendRequest(payload) {
@@ -173,7 +188,8 @@
                 phoneNumber: currentPhone,
                 captchaCode: captchaCode,
                 sessionCookie: currentSessionCookie,
-                captchaUuid: currentCaptchaUuid
+                captchaUuid: currentCaptchaUuid,
+                visitorToken: visitorToken
             });
 
             document.getElementById('modalCaptchaInput').value = '';
@@ -185,17 +201,10 @@
 
         function findVehicleRequestData(node) {
             if (!node) return null;
-
-            if (typeof node === 'string') {
-                try { node = JSON.parse(node); } catch (e) { return null; }
-            }
-
+            if (typeof node === 'string') { try { node = JSON.parse(node); } catch (e) { return null; } }
             if (typeof node !== 'object' || node === null) return null;
 
-            if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) {
-                return node;
-            }
-
+            if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) return node;
             if (node.request && typeof node.request === 'object') {
                 let res = findVehicleRequestData(node.request);
                 if (res) return res;
@@ -215,48 +224,23 @@
                     }
                 }
             }
-
             return null;
         }
 
-        // قاموس ترجمة أسماء الشركات العربية إلى مسارات ملفات الشعار الإنجليزية المعتمدة في موقع موجز
         const makerSlugMap = {
-            'تويوتا': 'toyota',
-            'نيسان': 'nissan',
-            'هيونداي': 'hyundai',
-            'كيا': 'kia',
-            'فورد': 'ford',
-            'شيفروليه': 'chevrolet',
-            'جي إم سي': 'gmc',
-            'لكزس': 'lexus',
-            'مرسيدس': 'mercedes',
-            'بي ام دبليو': 'bmw',
-            'هوندا': 'honda',
-            'مازدا': 'mazda',
-            'ميتسوبيشي': 'mitsubishi',
-            'شيري': 'chery',
-            'هانغتشو': 'geely',
-            'جيلي': 'geely',
-            'هافال': 'haval',
-            'شانجان': 'changan',
-            'ام جي': 'mg',
-            'دودج': 'dodge',
-            'جيب': 'jeep',
-            'أودي': 'audi',
-            'فولكس واجن': 'volkswagen'
+            'تويوتا': 'toyota', 'نيسان': 'nissan', 'هيونداي': 'hyundai', 'كيا': 'kia', 'فورد': 'ford',
+            'شيفروليه': 'chevrolet', 'جي إم سي': 'gmc', 'لكزس': 'lexus', 'مرسيدس': 'mercedes', 'بي ام دبليو': 'bmw',
+            'هوندا': 'honda', 'مازدا': 'mazda', 'ميتسوبيشي': 'mitsubishi', 'شيري': 'chery', 'جيلي': 'geely',
+            'هافال': 'haval', 'شانجان': 'changan', 'ام جي': 'mg', 'دودج': 'dodge', 'جيب': 'jeep', 'أودي': 'audi', 'فولكس واجن': 'volkswagen'
         };
 
-        // دالة ذكية واستثنائية لبناء رابط الشعار الحقيقي المضمون
         function extractLogoUrl(req) {
             if (!req) return null;
-            
             let rawPath = '';
 
-            // 1. التفتيش داخل كائن makerLogo بأشكاله الممكنة
             if (req.makerLogo) {
-                if (typeof req.makerLogo === 'string') {
-                    rawPath = req.makerLogo;
-                } else if (typeof req.makerLogo === 'object' && req.makerLogo !== null) {
+                if (typeof req.makerLogo === 'string') rawPath = req.makerLogo;
+                else if (typeof req.makerLogo === 'object' && req.makerLogo !== null) {
                     rawPath = req.makerLogo.url || req.makerLogo.logoUrl || req.makerLogo.path || req.makerLogo.fileUrl || req.makerLogo.fileName || '';
                 }
             }
@@ -264,31 +248,21 @@
             if (!rawPath && req.logoUrl) rawPath = req.logoUrl;
             if (!rawPath && req.makerLogoUrl) rawPath = req.makerLogoUrl;
 
-            // 2. إذا لم يرجع السيرفر مساراً، نولّد المسار بناءً على اسم الشركة بالعربية أو الإنجليزية
             if (!rawPath) {
                 const makerAr = (req.vehicleMaker || '').trim();
                 const makerEn = (req.vehicleMakerEn || '').trim().toLowerCase();
-
-                let slug = makerEn;
-                if (!slug && makerAr) {
-                    slug = makerSlugMap[makerAr] || '';
-                }
-
-                if (slug) {
-                    rawPath = `./assets/makersLogos/${slug}.png`;
-                }
+                let slug = makerEn || makerSlugMap[makerAr] || '';
+                if (slug) rawPath = `./assets/makersLogos/${slug}.png`;
             }
 
             if (!rawPath) return null;
 
-            // 3. تحويل أي مسار نسبي إلى رابط كامل معتمد لدى موجز
             let targetFullUrl = rawPath;
             if (rawPath.startsWith('./') || rawPath.startsWith('/') || rawPath.startsWith('assets/')) {
                 const cleanPath = rawPath.replace(/^\.?\//, '');
                 targetFullUrl = `https://mojaz.com.sa/mojaz/${cleanPath.replace(/^mojaz\//, '')}`;
             }
 
-            // إمرار الرابط المباشر من خلال الـ Proxy
             return `/api/image-proxy?url=${encodeURIComponent(targetFullUrl)}`;
         }
 
@@ -313,11 +287,9 @@
             const requestId = cleanVal(req.id);
             const source = cleanVal(req.source);
             
-            // استخراج رابط الشعار المضمون
             const logoUrl = extractLogoUrl(req);
             const fallbackChar = maker !== '-' ? maker.trim().charAt(0) : '🚗';
 
-            // تركيب رقم اللوحة
             let plateStr = cleanVal(req.plateDesc);
             if (plateStr === '-') {
                 const l1 = cleanVal(req.letterOne);

@@ -1,5 +1,7 @@
 const express = require('express');
 const axios = require('axios');
+const { wrapper } = require('axios-cookie-jar-support');
+const { CookieJar } = require('tough-cookie');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
@@ -54,12 +56,18 @@ app.post('/api/proxy-search', async (req, res) => {
     const config = getSettings();
     const dynamicDeviceId = generateDynamicDeviceId();
 
-    let currentCookies = sessionCookie || '';
+    // إنشاء متصفح وهمي بحافظة كوكيز مستمرة وتأكيد النطاق
+    const jar = new CookieJar();
+    const client = wrapper(axios.create({ 
+        jar, 
+        withCredentials: true,
+        httpsAgent 
+    }));
 
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+        'Accept-Language': 'ar,en;q=0.9',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
         'x-api-version': 'v2',
@@ -75,7 +83,7 @@ app.post('/api/proxy-search', async (req, res) => {
     };
 
     // -------------------------------------------------------------
-    // 1. مرحلة جلب الكابتشا (مع التهيئة الأولية للجلسة لتجاوز 403)
+    // 1. مرحلة جلب الكابتشا
     // -------------------------------------------------------------
     if (!captchaCode) {
         if (!config.captchaImgUrl) {
@@ -83,45 +91,23 @@ app.post('/api/proxy-search', async (req, res) => {
         }
 
         try {
-            // خطوة أولى: زيارة الصفحة الرئيسية للحصول على كوكيز الحماية الأساسية (Bypass 403)
-            if (!currentCookies) {
-                console.log('--- [0] بدء تهيئة الجلسة وجلب كوكيز الحماية من الصفحة الرئيسية ---');
-                try {
-                    const initRes = await axios.get('https://xxxtestxxx.com/mojaz/', {
-                        headers: baseHeaders,
-                        httpsAgent: httpsAgent,
-                        timeout: 8000
-                    });
-                    const initSetCookie = initRes.headers['set-cookie'];
-                    if (initSetCookie) {
-                        currentCookies = initSetCookie.join('; ');
-                        console.log('تم الحصول على كوكيز الجلسة الأولية بنجاح');
-                    }
-                } catch (initErr) {
-                    console.log('تنبيه أثناء تهيئة الجلسة:', initErr.message);
-                }
-            }
+            // خطوة تهيئة الجلسة: فتح الصفحة الرئيسية لحل تشفير 403 وجلب الكوكيز الأمنية
+            console.log('--- [0] إرسال طلب أولي للصفحة الرئيسية لتجاوز حظر 403 ---');
+            await client.get('https://xxxtestxxx.com/mojaz/', { headers: baseHeaders, timeout: 10000 });
 
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] جلب الكابتشا من: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] جلب الكابتشا عبر الجلسة المحمية: ${fullCaptchaUrl} ---`);
 
-            const imgRes = await axios.get(fullCaptchaUrl, { 
-                headers: {
-                    ...baseHeaders,
-                    ...(currentCookies ? { 'Cookie': currentCookies } : {})
-                },
-                httpsAgent: httpsAgent,
+            const imgRes = await client.get(fullCaptchaUrl, { 
+                headers: baseHeaders,
                 timeout: 10000 
             });
 
-            // دمج الكوكيز الجديدة القادمة مع الكوكيز السابقة
-            const setCookieHeader = imgRes.headers['set-cookie'];
-            if (setCookieHeader) {
-                currentCookies = (currentCookies ? currentCookies + '; ' : '') + setCookieHeader.join('; ');
-            }
+            // استخراج الكوكيز المتولدة تلقائياً من Jar
+            const cookieString = await jar.getCookieString('https://xxxtestxxx.com');
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
@@ -148,7 +134,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 success: false,
                 requireCaptcha: true,
                 captchaImage: base64Image,
-                sessionCookie: currentCookies,
+                sessionCookie: cookieString,
                 captchaUuid: extractedUuid
             });
 
@@ -166,7 +152,7 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. إرسال createRequest و getReportPrice
+    // 2. مرحلة إرسال createRequest و getReportPrice
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'captcha';
@@ -187,25 +173,25 @@ app.post('/api/proxy-search', async (req, res) => {
             [captchaFieldName]: captchaCode
         };
 
-        // الخطوة 1: createRequest
+        // 1. createRequest
         console.log(`--- [2] إرسال createRequest ---`);
-        const createRes = await axios.post(
+        const createRes = await client.post(
             config.createRequestUrl.trim(), 
             mergedPayload, 
-            { headers: requestHeaders, httpsAgent: httpsAgent }
+            { headers: requestHeaders }
         );
 
-        // الخطوة 2: getReportPrice
+        // 2. getReportPrice
         const reportPayload = {
             ...mergedPayload,
             ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
         };
 
         console.log('--- [3] إرسال طلب getReportPrice ---');
-        const reportRes = await axios.post(
+        const reportRes = await client.post(
             config.getReportUrl.trim(), 
             reportPayload, 
-            { headers: requestHeaders, httpsAgent: httpsAgent }
+            { headers: requestHeaders }
         );
 
         return res.json({ success: true, data: reportRes.data });

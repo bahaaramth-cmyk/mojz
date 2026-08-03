@@ -108,13 +108,12 @@ app.post('/api/proxy-search', async (req, res) => {
     };
 
     // -------------------------------------------------------------
-    // 1. مرحلة جلب الكابتشا (تُنفذ فقط عندما لا يرسل المستخدم رمز الكابتشا)
+    // 1. جلب الكابتشا واستخراج الـ UUID والدقة الزمنية
     // -------------------------------------------------------------
     if (!captchaCode) {
         try {
             const cookieMap = new Map();
 
-            // A. فتح الصفحة الرئيسية لتوليد الجلسة
             try {
                 const mainPageRes = await axios.get(`${targetOrigin}/mojaz/`, {
                     headers: baseHeaders,
@@ -128,12 +127,12 @@ app.post('/api/proxy-search', async (req, res) => {
 
             const initialCookieString = buildCookieString(cookieMap);
 
-            // B. طلب صورة الكابتشا
+            // توليد صيغة الوقت الحقيقية
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] Fetching New Captcha for Client: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] Fetching Captcha: ${fullCaptchaUrl} ---`);
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
                 headers: {
@@ -147,9 +146,14 @@ app.post('/api/proxy-search', async (req, res) => {
             mergeAndDeduplicateCookies(cookieMap, imgRes.headers['set-cookie']);
             const finalSessionCookie = buildCookieString(cookieMap);
 
-            let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
+            // جلب الهيدر الخاص بالـ captcha-uuid بأي صيغة قد تُرجعها استجابة موجز
+            let extractedUuid = imgRes.headers['captcha-uuid'] || 
+                                imgRes.headers['captcha_uuid'] || 
+                                imgRes.headers['x-captcha-uuid'] || 
+                                imgRes.headers['captcha-id'] || '';
+
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
-                extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || '';
+                extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || imgRes.data.captcha_uuid || '';
             }
 
             let base64Image = '';
@@ -168,7 +172,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 base64Image = `data:image/png;base64,${base64Image}`;
             }
 
-            console.log(`--- Generated Session Cookie: ${finalSessionCookie} ---`);
+            console.log(`--- Session Bound | Captcha UUID: [${extractedUuid}] ---`);
 
             return res.json({
                 success: false,
@@ -192,19 +196,23 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. مرحلة إرسال createRequest (تستخدم الكوكي الأصلية المربوطة بالصورة القادمة من المتصفح)
+    // 2. إرسال createRequest مع تمرير الـ captcha-uuid في الهيدر والـ Body
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'jcaptcha';
         const phoneFieldName = config.phoneField || 'sequenceNumber';
 
-        console.log(`--- [2] Submitting Search using Client Bound Cookie ---`);
+        console.log(`--- [2] Submitting Search using Client Bound Session ---`);
 
         const requestHeaders = {
             ...baseHeaders,
             'Content-Type': 'application/json',
             'Cookie': sessionCookie || '',
-            ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
+            ...(captchaUuid ? { 
+                'captcha-uuid': captchaUuid, 
+                'captcha_uuid': captchaUuid,
+                'x-captcha-uuid': captchaUuid 
+            } : {})
         };
 
         const mergedPayload = {
@@ -214,6 +222,7 @@ app.post('/api/proxy-search', async (req, res) => {
                     [phoneFieldName]: phoneNumber
                 }
             ],
+            ...(captchaUuid ? { "captchaUuid": captchaUuid, "captcha_uuid": captchaUuid } : {}),
             ...(config.extraPayload || {})
         };
 

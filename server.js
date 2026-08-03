@@ -1,6 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const https = require('https');
@@ -14,29 +13,19 @@ app.use(cors());
 // إتاحة المجلد الحالي كملفات استاتيكية
 app.use(express.static(__dirname));
 
-const CONFIG_PATH = path.join(__dirname, 'config.json');
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
 const sessionUuidStore = new Map();
 
-function getSettings() {
-    if (!fs.existsSync(CONFIG_PATH)) {
-        return { 
-            captchaImgUrl: '', 
-            createRequestUrl: '', 
-            getReportUrl: '', 
-            phoneField: 'sequenceNumber',
-            captchaField: 'jcaptcha',
-            extraPayload: {},
-            headers: {} 
-        };
-    }
-    try {
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    } catch (e) {
-        return { captchaImgUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'sequenceNumber', captchaField: 'jcaptcha', extraPayload: {}, headers: {} };
-    }
-}
+// الإعدادات الثابتة الخاصة بموقع موجز (بدون الحاجة للوحة تحكم)
+const CONFIG = {
+    captchaImgUrl: 'https://mojaz.com.sa/MojazWeb/captcha-controller/v2/captcha-image?',
+    createRequestUrl: 'https://mojaz.com.sa/MojazWeb/api/requests/multiple/createRequest',
+    getReportUrl: 'https://mojaz.com.sa/MojazWeb/api/packages/multiple/getReportPrice',
+    phoneField: 'sequenceNumber',
+    captchaField: 'jcaptcha',
+    extraPayload: {},
+    headers: {}
+};
 
 function mergeAndDeduplicateCookies(cookieMap, setCookieHeader) {
     if (!setCookieHeader) return;
@@ -61,20 +50,10 @@ function buildCookieString(cookieMap) {
     return pairs.join('; ');
 }
 
+// فحص سلامة السيرفر
 app.get('/health', (req, res) => res.status(200).send('Server is running healthy!'));
 
-app.get('/api/settings', (req, res) => res.json(getSettings()));
-
-app.post('/api/settings', (req, res) => {
-    try {
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify(req.body, null, 2));
-        res.json({ success: true, message: 'Settings saved successfully' });
-    } catch (err) {
-        res.status(500).json({ success: false, message: 'Failed to save settings' });
-    }
-});
-
-// وكيل جلب الصور لتخطي حظر الحماية على الشعار من سيرفر موجز
+// وكيل جلب الصور لتخطي حظر الشعار من سيرفر موجز
 app.get('/api/image-proxy', async (req, res) => {
     try {
         const imageUrl = req.query.url;
@@ -96,17 +75,13 @@ app.get('/api/image-proxy', async (req, res) => {
     }
 });
 
+// المسار الرئيسي لتلقي طلبات البحث والاستعلام اللحظي
 app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie, captchaUuid } = req.body;
-    const config = getSettings();
-
-    if (!config.captchaImgUrl) {
-        return res.status(400).json({ success: false, message: 'Please set captchaImgUrl in dashboard first' });
-    }
 
     let targetOrigin = 'https://mojaz.com.sa';
     try {
-        const parsedUrl = new URL(config.captchaImgUrl.trim());
+        const parsedUrl = new URL(CONFIG.captchaImgUrl.trim());
         targetOrigin = parsedUrl.origin;
     } catch (e) {
         console.error('Error parsing target origin');
@@ -127,10 +102,10 @@ app.post('/api/proxy-search', async (req, res) => {
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
-        ...(config.headers || {})
+        ...(CONFIG.headers || {})
     };
 
-    // 1. جلب صورة الكابتشا
+    // 1. جلب صورة الكابتشا وتنسيق الجلسة
     if (!captchaCode) {
         try {
             const cookieMap = new Map();
@@ -149,7 +124,7 @@ app.post('/api/proxy-search', async (req, res) => {
             const initialCookieString = buildCookieString(cookieMap);
 
             const currentTimestamp = Date.now().toString();
-            const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
+            const cleanBaseUrl = CONFIG.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
@@ -213,10 +188,10 @@ app.post('/api/proxy-search', async (req, res) => {
         }
     }
 
-    // 2. إرسال طلب createRequest
+    // 2. إرسال الطلب بعد إدخال الكابتشا (createRequest)
     try {
-        const captchaFieldName = config.captchaField || 'jcaptcha';
-        const phoneFieldName = config.phoneField || 'sequenceNumber';
+        const captchaFieldName = CONFIG.captchaField;
+        const phoneFieldName = CONFIG.phoneField;
         const activeUuid = captchaUuid || sessionUuidStore.get(sessionCookie || '') || '';
 
         const requestHeaders = {
@@ -238,11 +213,11 @@ app.post('/api/proxy-search', async (req, res) => {
                 }
             ],
             ...(activeUuid ? { "captchaUuid": activeUuid, "captcha_uuid": activeUuid } : {}),
-            ...(config.extraPayload || {})
+            ...(CONFIG.extraPayload || {})
         };
 
         const createRes = await axios.post(
-            config.createRequestUrl.trim(), 
+            CONFIG.createRequestUrl.trim(), 
             mergedPayload, 
             { headers: requestHeaders, httpsAgent: httpsAgent }
         );
@@ -263,7 +238,7 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 });
 
-app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
+// توجيه الصفحة الرئيسية مباشرة لـ index.html
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = process.env.PORT || 3000;

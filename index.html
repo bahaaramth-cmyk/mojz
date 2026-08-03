@@ -188,17 +188,14 @@
                     const resData = await response.json();
                     captchaModal.classList.add('hidden');
 
-                    console.log('Received Response:', resData);
+                    console.log('بيانات الاستجابة القادمة:', resData);
 
-                    // استخراج البيانات بغض النظر عن طريقة التغليف في السيرفر الوسيط
-                    const payload = resData.data || resData;
-
-                    // التأكد من نجاح العثور على كائن المركبة
-                    const reqObj = extractRequestObject(payload);
+                    // البحث الذكي داخل كامل الهيكل القادم عن كائن المركبة
+                    const reqObj = findVehicleRequest(resData);
 
                     if (reqObj) {
                         renderVehicleCard(reqObj);
-                    } else if (resData.message) {
+                    } else if (resData && resData.message) {
                         alert('خطأ: ' + resData.message);
                     } else {
                         alert('تعذر استخراج بيانات المركبة، يرجى إعادة المحاولة.');
@@ -211,30 +208,46 @@
                 }
             });
 
-            // دالة تفكيك الهيكل واستخراج كائن request بغض النظر عن طريقة تغليفه
-            function extractRequestObject(data) {
-                if (!data) return null;
+            // دالة بحث شجرية متعمقة تجد كائن المركبة بأي مكان في الـ JSON
+            function findVehicleRequest(obj) {
+                if (!obj) return null;
 
-                if (data['createRequest Success']) {
-                    return extractRequestObject(data['createRequest Success']);
+                // إذا كانت البيانات ممررة كـ string
+                if (typeof obj === 'string') {
+                    try {
+                        obj = JSON.parse(obj);
+                    } catch (e) {
+                        return null;
+                    }
                 }
 
-                if (Array.isArray(data) && data.length > 0) {
-                    return extractRequestObject(data[0]);
-                }
+                if (typeof obj === 'object' && obj !== null) {
+                    // إذا كان الكائن الحالي هو كائن المركبة المطلوب
+                    if (obj.vehicleMaker || obj.vin || obj.sequenceNumber) {
+                        return obj;
+                    }
 
-                if (data.request) {
-                    return data.request;
-                }
-
-                if (data.vehicleMaker) {
-                    return data;
+                    // إذا كان مصفوفة
+                    if (Array.isArray(obj)) {
+                        for (let item of obj) {
+                            let found = findVehicleRequest(item);
+                            if (found) return found;
+                        }
+                    } else {
+                        // إذا كان كائن مقترن بمفاتيح متعددة
+                        for (let key in obj) {
+                            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                                let found = findVehicleRequest(obj[key]);
+                                if (found) return found;
+                            }
+                        }
+                    }
                 }
 
                 return null;
             }
 
-            // دالة رسم بطاقة تفاصيل المركبة مباشرة من الكائن المجهّز
+            // دالة رسم بطاقة تفاصيل المركبة مباشرة
             function renderVehicleCard(req) {
                 if (!req) return;
 

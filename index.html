@@ -1,283 +1,111 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>الموقع التجريبي - الاستعلام اللحظي</title>
-    <style>
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .card { background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); width: 100%; max-width: 550px; }
-        .card h2 { margin-top: 0; color: #2c3e50; text-align: center; margin-bottom: 8px; }
-        .card p.subtitle { color: #7f8c8d; text-align: center; font-size: 14px; margin-bottom: 25px; }
-        .form-group { margin-bottom: 18px; text-align: right; }
-        label { display: block; font-weight: 600; margin-bottom: 6px; color: #34495e; font-size: 14px; }
-        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 15px; }
-        input:focus { border-color: #008B7D; outline: none; }
-        
-        .btn-submit { background: #008B7D; color: white; border: none; padding: 14px; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        .btn-submit:hover { background: #00766A; }
-        .btn-submit:disabled { background: #bdc3c7; cursor: not-allowed; }
+// دالة استخراج كائن request المباشر بدقة متناهية
+function extractRequestObject(result) {
+    if (!result) return {};
 
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); justify-content: center; align-items: center; z-index: 1000; }
-        .modal-content { background: #ffffff; padding: 25px; border-radius: 12px; max-width: 360px; width: 90%; text-align: right; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-        .captcha-img-container { height: 60px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 12px 0; overflow: hidden; }
-        .captcha-img-container img { max-height: 100%; max-width: 100%; object-fit: contain; }
+    // 1. إذا كانت الاستجابة مغلّفة بـ data
+    let body = result.data !== undefined ? result.data : result;
 
-        .status-msg { text-align: center; padding: 12px; border-radius: 8px; margin-top: 15px; display: none; font-size: 14px; }
-        .status-loading { background: #e0f2fe; color: #0369a1; }
-        .status-error { background: #fee2e2; color: #b91c1c; }
-        
-        /* تصميم كرت العرض المنسق */
-        #resultContainer { margin-top: 25px; display: none; text-align: right; }
-        .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
-        .vehicle-header h3 { margin: 0; font-size: 18px; font-weight: bold; }
-        .vehicle-header span { background: rgba(255,255,255,0.2); font-size: 12px; padding: 4px 10px; border-radius: 20px; }
-        
-        .vehicle-grid { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .grid-item { background: #f8fafc; border: 1px solid #edf2f7; padding: 12px; border-radius: 8px; }
-        .grid-item.full { grid-column: span 2; }
-        .item-label { display: block; font-size: 11px; color: #718096; font-weight: 600; margin-bottom: 4px; }
-        .item-val { display: block; font-size: 14px; color: #1a202c; font-weight: bold; direction: ltr; text-align: right; }
-        .item-val.rtl { direction: rtl; }
-    </style>
-</head>
-<body>
+    // 2. إذا كانت الاستجابة مصفوفة Array (كما يظهر باللوغ لديك [ {...} ])
+    if (Array.isArray(body) && body.length > 0) {
+        body = body[0];
+    }
 
-    <div class="card">
-        <h2>بوابة الاستعلام</h2>
-        <p class="subtitle">محاكاة البحث اللحظي عبر السيرفر الوسيط</p>
+    // 3. الوصول إلى كائن request بداخل الاستجابة
+    if (body && body.request) {
+        return body.request;
+    }
 
-        <form id="searchForm" onsubmit="startSearch(event)">
-            <div class="form-group">
-                <label for="phoneNumber">الرقم التسلسلي / رقم الهيكل:</label>
-                <input type="text" id="phoneNumber" placeholder="أدخل الرقم للبحث..." required autocomplete="off">
+    return body || {};
+}
+
+function renderVehicleCard(apiResult) {
+    const resultContainer = document.getElementById('resultContainer');
+    
+    // استخراج كائن request المباشر
+    const req = extractRequestObject(apiResult);
+
+    console.log('بيانات المركبة المستخرجة بنجاح:', req);
+
+    // دالة لتنظيف النص وعرض القيمة إن وجدت
+    function getVal(val) {
+        if (val === null || val === undefined) return '';
+        const str = String(val).trim();
+        return str;
+    }
+
+    // ربط الحقول بالمتغيرات المباشرة من request
+    const maker = getVal(req.vehicleMaker);
+    const model = getVal(req.vehicleModel);
+    const year = getVal(req.modelYear);
+    const seq = getVal(req.sequenceNumber);
+    const vin = getVal(req.vin);
+    const customId = getVal(req.customId);
+    const expiryDate = getVal(req.expiryDate);
+    const requestId = getVal(req.id);
+    const source = getVal(req.source);
+    
+    // تجهيز اللوحة
+    let plateStr = getVal(req.plateDesc);
+    if (!plateStr || plateStr === '0000') {
+        const l1 = getVal(req.letterOne);
+        const l2 = getVal(req.letterTwo);
+        const l3 = getVal(req.letterThree);
+        const pNum = getVal(req.plateNumber);
+        if (l1 || l2 || l3 || (pNum && pNum !== '0')) {
+            plateStr = `${l1} ${l2} ${l3} ${pNum}`.trim();
+        } else {
+            plateStr = '';
+        }
+    }
+
+    const title = (maker || model) ? `${maker} ${model}`.trim() : 'بيانات المركبة المستعلم عنها';
+
+    resultContainer.innerHTML = `
+        <div class="vehicle-card">
+            <div class="vehicle-header">
+                <h3>${title}</h3>
+                ${year ? `<span>سنة الصنع: ${year}</span>` : ''}
             </div>
-            <button type="submit" id="submitBtn" class="btn-submit">بحث الآن</button>
-        </form>
-
-        <div id="statusMsg" class="status-msg"></div>
-
-        <div id="resultContainer"></div>
-    </div>
-
-    <div id="captchaModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 style="margin-top:0; color:#2c3e50;">التحقق من الكابتشا</h3>
-            <p style="font-size:13px; color:#666; margin-bottom:10px;">يرجى إدخال الرمز الظاهر بالصورة لإكمال البحث:</p>
-            
-            <div class="captcha-img-container">
-                <img id="modalCaptchaImg" src="" alt="رمز الكابتشا">
-            </div>
-
-            <div class="form-group">
-                <input type="text" id="modalCaptchaInput" placeholder="أدخل الرمز هنا..." autocomplete="off">
-            </div>
-
-            <button type="button" onclick="submitCaptcha()" class="btn-submit">تأكيد وإرسال</button>
-        </div>
-    </div>
-
-    <script>
-        let currentPhone = '';
-        let currentSessionCookie = '';
-        let currentCaptchaUuid = '';
-
-        async function startSearch(e) {
-            e.preventDefault();
-
-            currentPhone = document.getElementById('phoneNumber').value.trim();
-            if (!currentPhone) return;
-
-            const statusMsg = document.getElementById('statusMsg');
-            const resultContainer = document.getElementById('resultContainer');
-            const submitBtn = document.getElementById('submitBtn');
-
-            resultContainer.style.display = 'none';
-            statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري الاتصال بالموقع الأصلي...';
-            statusMsg.style.display = 'block';
-            submitBtn.disabled = true;
-
-            await sendRequest({ phoneNumber: currentPhone });
-        }
-
-        async function sendRequest(payload) {
-            const statusMsg = document.getElementById('statusMsg');
-            const submitBtn = document.getElementById('submitBtn');
-
-            try {
-                const res = await fetch('/api/proxy-search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const result = await res.json();
-
-                if (result.requireCaptcha) {
-                    statusMsg.style.display = 'none';
-                    if (result.sessionCookie) currentSessionCookie = result.sessionCookie;
-                    if (result.captchaUuid) currentCaptchaUuid = result.captchaUuid;
-
-                    document.getElementById('modalCaptchaImg').src = result.captchaImage;
-                    document.getElementById('captchaModal').style.display = 'flex';
-                } 
-                else {
-                    closeCaptchaModal();
-                    statusMsg.style.display = 'none';
-                    
-                    // طباعة الاستجابة لمعاينتها بالأدوات
-                    console.log('Result Raw:', result);
-
-                    // استخراج كائن request المباشر ورسمه
-                    renderVehicleCard(result);
-                    submitBtn.disabled = false;
-                }
-            } catch (err) {
-                closeCaptchaModal();
-                statusMsg.className = 'status-msg status-error';
-                statusMsg.innerText = 'حدث خطأ في الاتصال بالسيرفر الوسيط';
-                statusMsg.style.display = 'block';
-                submitBtn.disabled = false;
-            }
-        }
-
-        async function submitCaptcha() {
-            const captchaCode = document.getElementById('modalCaptchaInput').value.trim();
-            if (!captchaCode) {
-                alert('يرجى إدخال رمز الكابتشا أولاً');
-                return;
-            }
-
-            closeCaptchaModal();
-            
-            const statusMsg = document.getElementById('statusMsg');
-            statusMsg.className = 'status-msg status-loading';
-            statusMsg.innerText = 'جاري إرسال الطلب وإحضار البيانات...';
-            statusMsg.style.display = 'block';
-
-            await sendRequest({
-                phoneNumber: currentPhone,
-                captchaCode: captchaCode,
-                sessionCookie: currentSessionCookie,
-                captchaUuid: currentCaptchaUuid
-            });
-
-            document.getElementById('modalCaptchaInput').value = '';
-        }
-
-        function closeCaptchaModal() {
-            document.getElementById('captchaModal').style.display = 'none';
-        }
-
-        // دالة الوصول المباشر لكائن request بدون أي تعقيد
-        function parseTargetObject(apiResult) {
-            if (!apiResult) return {};
-
-            let target = apiResult.data || apiResult;
-
-            // إذا كانت مصفوفة يأخذ أول عنصر
-            if (Array.isArray(target) && target.length > 0) {
-                target = target[0];
-            }
-
-            // إذا كان يحتوي على request
-            if (target && target.request) {
-                return target.request;
-            }
-
-            return target || {};
-        }
-
-        function renderVehicleCard(apiResult) {
-            const resultContainer = document.getElementById('resultContainer');
-            
-            // جلب كائن request المباشر
-            const req = parseTargetObject(apiResult);
-
-            // دالة للحصول على النص النظيف، وإن كان فارغاً يتركه فارغاً
-            function getVal(v) {
-                if (v === null || v === undefined) return '';
-                const str = String(v).trim();
-                if (str === '0000' || str === '0') return '';
-                return str;
-            }
-
-            const maker = getVal(req.vehicleMaker);
-            const model = getVal(req.vehicleModel);
-            const year = getVal(req.modelYear);
-            const seq = getVal(req.sequenceNumber);
-            const vin = getVal(req.vin);
-            const customId = getVal(req.customId);
-            const expiryDate = getVal(req.expiryDate);
-            const requestId = getVal(req.id);
-            const source = getVal(req.source);
-            
-            // تركيب اللوحة
-            let plateStr = getVal(req.plateDesc);
-            if (!plateStr) {
-                const l1 = getVal(req.letterOne);
-                const l2 = getVal(req.letterTwo);
-                const l3 = getVal(req.letterThree);
-                const pNum = getVal(req.plateNumber);
-                if (l1 || l2 || l3 || pNum) {
-                    plateStr = `${l1} ${l2} ${l3} ${pNum}`.trim();
-                }
-            }
-
-            const title = (maker || model) ? `${maker} ${model}`.trim() : 'بيانات المركبة المستعلم عنها';
-
-            resultContainer.innerHTML = `
-                <div class="vehicle-card">
-                    <div class="vehicle-header">
-                        <h3>${title}</h3>
-                        ${year ? `<span>سنة الصنع: ${year}</span>` : ''}
-                    </div>
-                    <div class="vehicle-grid">
-                        <div class="grid-item">
-                            <span class="item-label">الشركة المصنعة</span>
-                            <span class="item-val rtl">${maker}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">موديل المركبة</span>
-                            <span class="item-val rtl">${model}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">الرقم التسلسلي</span>
-                            <span class="item-val">${seq}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">رقم اللوحة</span>
-                            <span class="item-val rtl">${plateStr}</span>
-                        </div>
-                        <div class="grid-item full">
-                            <span class="item-label">رقم الهيكل (VIN)</span>
-                            <span class="item-val">${vin}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">الرقم الجمركي</span>
-                            <span class="item-val">${customId}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">تاريخ الانتهاء</span>
-                            <span class="item-val rtl">${expiryDate}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">رقم الطلب</span>
-                            <span class="item-val">${requestId}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">المصدر</span>
-                            <span class="item-val rtl">${source}</span>
-                        </div>
-                    </div>
+            <div class="vehicle-grid">
+                <div class="grid-item">
+                    <span class="item-label">الشركة المصنعة</span>
+                    <span class="item-val rtl">${maker}</span>
                 </div>
-            `;
+                <div class="grid-item">
+                    <span class="item-label">موديل المركبة</span>
+                    <span class="item-val rtl">${model}</span>
+                </div>
+                <div class="grid-item">
+                    <span class="item-label">الرقم التسلسلي</span>
+                    <span class="item-val">${seq}</span>
+                </div>
+                <div class="grid-item">
+                    <span class="item-label">رقم اللوحة</span>
+                    <span class="item-val rtl">${plateStr}</span>
+                </div>
+                <div class="grid-item full">
+                    <span class="item-label">رقم الهيكل (VIN)</span>
+                    <span class="item-val">${vin}</span>
+                </div>
+                <div class="grid-item">
+                    <span class="item-label">الرقم الجمركي</span>
+                    <span class="item-val">${customId}</span>
+                </div>
+                <div class="grid-item">
+                    <span class="item-label">تاريخ الانتهاء</span>
+                    <span class="item-val rtl">${expiryDate}</span>
+                </div>
+                <div class="grid-item">
+                    <span class="item-label">رقم الطلب</span>
+                    <span class="item-val">${requestId}</span>
+                </div>
+                <div class="grid-item">
+                    <span class="item-label">المصدر</span>
+                    <span class="item-val rtl">${source}</span>
+                </div>
+            </div>
+        </div>
+    `;
 
-            resultContainer.style.display = 'block';
-        }
-    </script>
-</body>
-</html>
+    resultContainer.style.display = 'block';
+}

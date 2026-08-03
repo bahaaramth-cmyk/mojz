@@ -85,36 +85,58 @@ app.post('/api/proxy-search', async (req, res) => {
     };
 
     // -------------------------------------------------------------
-    // 1. جلب الكابتشا وتجميع الـ Cookie والـ UUID
+    // 1. جلب الكابتشا وبناء سلسلة الكوكيز المزدوجة (Session + TS)
     // -------------------------------------------------------------
     if (!captchaCode) {
         try {
+            let combinedCookies = [];
+
+            // A. طلب الصفحة الرئيسية لأخذ JSESSIONID
+            try {
+                const mainPageRes = await axios.get(`${targetOrigin}/mojaz/`, {
+                    headers: baseHeaders,
+                    httpsAgent: httpsAgent,
+                    timeout: 6000
+                });
+                const mainSetCookies = mainPageRes.headers['set-cookie'];
+                if (mainSetCookies && Array.isArray(mainSetCookies)) {
+                    mainSetCookies.forEach(c => combinedCookies.push(c.split(';')[0]));
+                }
+            } catch (e) {
+                console.log('Main page handshake skipped');
+            }
+
+            const initialCookieString = combinedCookies.join('; ');
+
+            // B. طلب صورة الكابتشا باستخدام الكوكي الأولية
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] Fetching captcha: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] Fetching Captcha: ${fullCaptchaUrl} ---`);
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
-                headers: baseHeaders,
+                headers: {
+                    ...baseHeaders,
+                    ...(initialCookieString ? { 'Cookie': initialCookieString } : {})
+                },
                 httpsAgent: httpsAgent,
                 timeout: 10000 
             });
 
-            // استخراج وتجميع الكوكيز الصادرة كاملاً
-            let cookiesList = [];
+            // دمج الكوكيز القادمة من طلب الكابتشا (مثل TS15126cf3027)
             const rawSetCookies = imgRes.headers['set-cookie'];
             if (rawSetCookies && Array.isArray(rawSetCookies)) {
-                cookiesList = rawSetCookies.map(c => c.split(';')[0]);
+                rawSetCookies.forEach(c => combinedCookies.push(c.split(';')[0]));
             } else if (rawSetCookies) {
-                cookiesList.push(rawSetCookies.split(';')[0]);
+                combinedCookies.push(rawSetCookies.split(';')[0]);
             }
-            const fullSessionCookie = cookiesList.join('; ');
 
-            // استخراج الـ captcha-uuid من الهيدرز أو البيانات
-            let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || imgRes.headers['uuid'] || '';
+            const finalSessionCookie = combinedCookies.join('; ');
+
+            let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
-                extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || imgRes.data.captcha_uuid || '';
+                extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || '';
             }
 
             let base64Image = '';
@@ -133,13 +155,13 @@ app.post('/api/proxy-search', async (req, res) => {
                 base64Image = `data:image/png;base64,${base64Image}`;
             }
 
-            console.log(`--- Extracted Cookie: ${fullSessionCookie.substring(0, 40)}... | Captcha UUID: ${extractedUuid} ---`);
+            console.log(`--- Session Cookies Bound: ${finalSessionCookie} ---`);
 
             return res.json({
                 success: false,
                 requireCaptcha: true,
                 captchaImage: base64Image,
-                sessionCookie: fullSessionCookie,
+                sessionCookie: finalSessionCookie,
                 captchaUuid: extractedUuid
             });
 
@@ -157,7 +179,7 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. إرسال createRequest مرفقاً بـ Cookie و captcha-uuid
+    // 2. إرسال createRequest بالبيانات والكوكيز المدمجة
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'jcaptcha';
@@ -180,7 +202,7 @@ app.post('/api/proxy-search', async (req, res) => {
             ...(config.extraPayload || {})
         };
 
-        console.log(`--- [2] Sending createRequest with Session & UUID ---`, JSON.stringify(mergedPayload));
+        console.log(`--- [2] Sending createRequest with combined cookies ---`, JSON.stringify(mergedPayload));
         const createRes = await axios.post(
             config.createRequestUrl.trim(), 
             mergedPayload, 

@@ -168,47 +168,47 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة الوصول لمحتوى request الداخلي بدقة
-        function extractRequestObject(result) {
-            if (!result) return {};
+        // دالة بحث شجرية تضمن العثور على كائن المركبة بغض النظر عن طريقة التغليف
+        function findVehicleRequest(obj) {
+            if (!obj || typeof obj !== 'object') return null;
 
-            let target = result;
-
-            // 1. فحص المفتاح "createRequest Success"
-            if (target["createRequest Success"]) {
-                target = target["createRequest Success"];
+            // إذا كان هذا الكائن يحتوي على الحقول المطلوبة مباشرة
+            if (obj.vehicleMaker || obj.sequenceNumber || obj.vin) {
+                return obj;
             }
 
-            // 2. فحص ما إذا كان هناك غلاف data
-            if (target && target.data !== undefined) {
-                target = target.data;
+            // إذا كانت البيانات بداخل الخاصية request
+            if (obj.request && typeof obj.request === 'object') {
+                const found = findVehicleRequest(obj.request);
+                if (found) return found;
             }
 
-            // 3. فحص المفتاح "createRequest Success" مرة أخرى إن كان داخل data
-            if (target && target["createRequest Success"]) {
-                target = target["createRequest Success"];
+            // إذا كانت البيانات عبارة عن مصفوفة Array
+            if (Array.isArray(obj)) {
+                for (let item of obj) {
+                    const found = findVehicleRequest(item);
+                    if (found) return found;
+                }
+            } else {
+                // البحث في جميع مفاتيح الكائن
+                for (let key in obj) {
+                    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                        const found = findVehicleRequest(obj[key]);
+                        if (found) return found;
+                    }
+                }
             }
 
-            // 4. إذا كانت مصفوفة
-            if (Array.isArray(target) && target.length > 0) {
-                target = target[0];
-            }
-
-            // 5. استخراج كائن request
-            if (target && target.request) {
-                return target.request;
-            }
-
-            return target || {};
+            return null;
         }
 
         function renderVehicleCard(apiResult) {
             const resultContainer = document.getElementById('resultContainer');
             
-            // استخراج كائن request المباشر
-            const req = extractRequestObject(apiResult);
+            // العثور المباشر على كائن request
+            const req = findVehicleRequest(apiResult) || {};
 
-            // دالة تنظيف وتجهيز النص
+            // دالة تنظيف النص وإرجاعه كما هو أو ترك المجال فارغاً
             function getVal(v) {
                 if (v === null || v === undefined) return '';
                 const str = String(v).trim();
@@ -216,6 +216,7 @@
                 return str;
             }
 
+            // ربط المتغيرات بالأسماء الحقيقية المرجعة من موجز
             const maker = getVal(req.vehicleMaker);
             const model = getVal(req.vehicleModel);
             const year = getVal(req.modelYear);
@@ -226,7 +227,7 @@
             const requestId = getVal(req.id);
             const source = getVal(req.source);
             
-            // تجهيز اللوحة
+            // تركيبة اللوحة
             let plateStr = getVal(req.plateDesc);
             if (!plateStr) {
                 const l1 = getVal(req.letterOne);

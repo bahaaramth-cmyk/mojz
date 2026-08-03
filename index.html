@@ -188,17 +188,16 @@
                     const resData = await response.json();
                     captchaModal.classList.add('hidden');
 
-                    console.log('بيانات الاستجابة القادمة:', resData);
+                    console.log('بيانات الاستجابة القادمة من السيرفر:', resData);
 
-                    // البحث الذكي داخل كامل الهيكل القادم عن كائن المركبة
-                    const reqObj = findVehicleRequest(resData);
+                    // البحث الشجري المباشر عن كائن المركبة
+                    const reqObj = extractVehicleData(resData);
 
                     if (reqObj) {
                         renderVehicleCard(reqObj);
-                    } else if (resData && resData.message) {
-                        alert('خطأ: ' + resData.message);
                     } else {
-                        alert('تعذر استخراج بيانات المركبة، يرجى إعادة المحاولة.');
+                        const errMsg = resData.message || 'تعذر استخراج بيانات المركبة، يرجى إعادة المحاولة.';
+                        alert('خطأ: ' + errMsg);
                     }
                 } catch (err) {
                     alert('حدث خطأ أثناء الاتصال بالسيرفر الوسيط');
@@ -208,46 +207,45 @@
                 }
             });
 
-            // دالة بحث شجرية متعمقة تجد كائن المركبة بأي مكان في الـ JSON
-            function findVehicleRequest(obj) {
-                if (!obj) return null;
+            // دالة بحث شاملة تجوب كافة مستويات الـ JSON للوصول للكائن الذي يحتوي على vehicleMaker أو vin
+            function extractVehicleData(data) {
+                if (!data) return null;
 
-                // إذا كانت البيانات ممررة كـ string
-                if (typeof obj === 'string') {
-                    try {
-                        obj = JSON.parse(obj);
-                    } catch (e) {
-                        return null;
-                    }
+                if (typeof data === 'string') {
+                    try { data = JSON.parse(data); } catch(e) {}
                 }
 
-                if (typeof obj === 'object' && obj !== null) {
-                    // إذا كان الكائن الحالي هو كائن المركبة المطلوب
-                    if (obj.vehicleMaker || obj.vin || obj.sequenceNumber) {
-                        return obj;
+                let foundNode = null;
+
+                function walk(node) {
+                    if (!node || typeof node !== 'object' || foundNode) return;
+
+                    // فحص ما إذا كان الكائن الحالي يحتوي على بيانات المركبة الفعلية
+                    if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) {
+                        foundNode = node;
+                        return;
                     }
 
-                    // إذا كان مصفوفة
-                    if (Array.isArray(obj)) {
-                        for (let item of obj) {
-                            let found = findVehicleRequest(item);
-                            if (found) return found;
+                    if (Array.isArray(node)) {
+                        for (let item of node) {
+                            walk(item);
+                            if (foundNode) return;
                         }
                     } else {
-                        // إذا كان كائن مقترن بمفاتيح متعددة
-                        for (let key in obj) {
-                            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                                let found = findVehicleRequest(obj[key]);
-                                if (found) return found;
+                        for (let key in node) {
+                            if (Object.prototype.hasOwnProperty.call(node, key)) {
+                                walk(node[key]);
+                                if (foundNode) return;
                             }
                         }
                     }
                 }
 
-                return null;
+                walk(data);
+                return foundNode;
             }
 
-            // دالة رسم بطاقة تفاصيل المركبة مباشرة
+            // دالة رسم بطاقة تفاصيل المركبة
             function renderVehicleCard(req) {
                 if (!req) return;
 

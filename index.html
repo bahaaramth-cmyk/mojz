@@ -28,7 +28,7 @@
         .status-loading { background: #e0f2fe; color: #0369a1; }
         .status-error { background: #fee2e2; color: #b91c1c; }
         
-        /* تنسيقات عرض بيانات المركبة المنسقة */
+        /* تصميم كرت العرض المنسق */
         #resultContainer { margin-top: 25px; display: none; text-align: right; }
         .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
@@ -128,9 +128,11 @@
                     closeCaptchaModal();
                     statusMsg.style.display = 'none';
                     
+                    // طباعة الاستجابة لمعاينتها بالأدوات
+                    console.log('Result Raw:', result);
+
                     // استخراج كائن request المباشر ورسمه
-                    const requestData = getRequestObject(result.data || result);
-                    renderVehicleCard(requestData);
+                    renderVehicleCard(result);
                     submitBtn.disabled = false;
                 }
             } catch (err) {
@@ -170,54 +172,58 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة الوصول لمحتوى request المباشر
-        function getRequestObject(data) {
-            if (!data) return {};
-            if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch(e){}
+        // دالة الوصول المباشر لكائن request بدون أي تعقيد
+        function parseTargetObject(apiResult) {
+            if (!apiResult) return {};
+
+            let target = apiResult.data || apiResult;
+
+            // إذا كانت مصفوفة يأخذ أول عنصر
+            if (Array.isArray(target) && target.length > 0) {
+                target = target[0];
             }
-            if (Array.isArray(data) && data.length > 0) {
-                return getRequestObject(data[0]);
+
+            // إذا كان يحتوي على request
+            if (target && target.request) {
+                return target.request;
             }
-            if (data.request) {
-                return data.request;
-            }
-            return data;
+
+            return target || {};
         }
 
-        // دالة عرض جميع حقول التقرير المرفقة مع ترجمتها وتنظيف القيم الفارغة
-        function renderVehicleCard(req) {
+        function renderVehicleCard(apiResult) {
             const resultContainer = document.getElementById('resultContainer');
-            req = req || {};
+            
+            // جلب كائن request المباشر
+            const req = parseTargetObject(apiResult);
 
-            // تنظيف الحقل المرجّع وإذا كان فارغاً يُترك كما هو
-            function cleanVal(v) {
+            // دالة للحصول على النص النظيف، وإن كان فارغاً يتركه فارغاً
+            function getVal(v) {
                 if (v === null || v === undefined) return '';
                 const str = String(v).trim();
+                if (str === '0000' || str === '0') return '';
                 return str;
             }
 
-            const maker = cleanVal(req.vehicleMaker);
-            const model = cleanVal(req.vehicleModel);
-            const year = cleanVal(req.modelYear);
-            const seq = cleanVal(req.sequenceNumber);
-            const vin = cleanVal(req.vin);
-            const customId = cleanVal(req.customId);
-            const expiryDate = cleanVal(req.expiryDate);
-            const requestId = cleanVal(req.id);
-            const source = cleanVal(req.source);
+            const maker = getVal(req.vehicleMaker);
+            const model = getVal(req.vehicleModel);
+            const year = getVal(req.modelYear);
+            const seq = getVal(req.sequenceNumber);
+            const vin = getVal(req.vin);
+            const customId = getVal(req.customId);
+            const expiryDate = getVal(req.expiryDate);
+            const requestId = getVal(req.id);
+            const source = getVal(req.source);
             
-            // حساب اللوحة بشكل دقيق بدون فراغات وهمية
-            let plateStr = cleanVal(req.plateDesc);
-            if (!plateStr || plateStr === '0000' || plateStr === '0') {
-                const l1 = cleanVal(req.letterOne);
-                const l2 = cleanVal(req.letterTwo);
-                const l3 = cleanVal(req.letterThree);
-                const pNum = cleanVal(req.plateNumber);
-                if (l1 || l2 || l3 || (pNum && pNum !== '0')) {
+            // تركيب اللوحة
+            let plateStr = getVal(req.plateDesc);
+            if (!plateStr) {
+                const l1 = getVal(req.letterOne);
+                const l2 = getVal(req.letterTwo);
+                const l3 = getVal(req.letterThree);
+                const pNum = getVal(req.plateNumber);
+                if (l1 || l2 || l3 || pNum) {
                     plateStr = `${l1} ${l2} ${l3} ${pNum}`.trim();
-                } else {
-                    plateStr = '';
                 }
             }
 

@@ -3,329 +3,168 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mojaz موجز - تقرير المركبات المستعملة</title>
-    
-    <link rel="icon" href="https://mojaz.com.sa/mojaz/assets/favicon.ico">
-    <link rel="stylesheet" href="https://mojaz.com.sa/mojaz/styles-ULQ6U2RM.css">
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
-    
+    <title>الموقع التجريبي - الاستعلام اللحظي</title>
     <style>
-        body {
-            font-family: 'Tajawal', sans-serif !important;
-            background-color: #f4f6f8;
-        }
-        .mojaz-header {
-            background-color: #005A52;
-        }
-        .mojaz-primary-btn {
-            background-color: #008B7D;
-        }
-        .mojaz-primary-btn:hover {
-            background-color: #00766A;
-        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .card { background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); width: 100%; max-width: 480px; }
+        .card h2 { margin-top: 0; color: #2c3e50; text-align: center; margin-bottom: 8px; }
+        .card p.subtitle { color: #7f8c8d; text-align: center; font-size: 14px; margin-bottom: 25px; }
+        .form-group { margin-bottom: 18px; text-align: right; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; color: #34495e; font-size: 14px; }
+        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 15px; }
+        input:focus { border-color: #3498db; outline: none; }
+        
+        .btn-submit { background: #3498db; color: white; border: none; padding: 14px; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        .btn-submit:hover { background: #2980b9; }
+        .btn-submit:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: #ffffff; padding: 25px; border-radius: 12px; max-width: 360px; width: 90%; text-align: right; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .captcha-img-container { height: 60px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 12px 0; overflow: hidden; }
+        .captcha-img-container img { max-height: 100%; max-width: 100%; object-fit: contain; }
+
+        .status-msg { text-align: center; padding: 12px; border-radius: 8px; margin-top: 15px; display: none; font-size: 14px; }
+        .status-loading { background: #e0f2fe; color: #0369a1; }
+        .status-error { background: #fee2e2; color: #b91c1c; }
+        #resultContainer { margin-top: 20px; display: none; text-align: right; }
+        .result-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; font-size: 13px; max-height: 250px; overflow-y: auto; text-align: left; direction: ltr; }
     </style>
 </head>
-<body class="bg-[#F4F6F8] min-h-screen flex flex-col justify-between text-right">
+<body>
 
-    <header class="mojaz-header text-white py-3.5 px-6 shadow-md">
-        <div class="max-w-6xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <div class="bg-white text-[#005A52] font-black text-xl px-3 py-1 rounded-md shadow-sm">
-                    موجز
-                </div>
-                <span class="text-xs md:text-sm font-medium text-teal-100">المنصة الوطنية لتقارير السيارات المستعملة</span>
+    <div class="card">
+        <h2>بوابة الاستعلام</h2>
+        <p class="subtitle">محاكاة البحث اللحظي عبر السيرفر الوسيط</p>
+
+        <form id="searchForm" onsubmit="startSearch(event)">
+            <div class="form-group">
+                <label for="phoneNumber">رقم الهاتف / معرّف البحث:</label>
+                <input type="text" id="phoneNumber" placeholder="أدخل الرقم للبحث..." required autocomplete="off">
             </div>
-            <a href="/dashboard" class="text-xs md:text-sm font-semibold text-teal-100 hover:text-white transition">لوحة التحكم ⚙️</a>
-        </div>
-    </header>
+            <button type="submit" id="submitBtn" class="btn-submit">بحث الآن</button>
+        </form>
 
-    <main class="flex-1 flex flex-col items-center justify-center p-4 my-6">
-        <div class="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 md:p-8 space-y-6 border border-gray-100">
-            
-            <div class="border-b border-gray-100 pb-4">
-                <h2 class="text-xl font-bold text-gray-900">ابحث عن تقرير مركبة</h2>
-                <p class="text-xs text-gray-500 mt-1">خدمة توفر البيانات المعتمدة لأي مركبة مستعملة فورياً</p>
+        <div id="statusMsg" class="status-msg"></div>
+
+        <div id="resultContainer">
+            <label style="font-weight:bold; color:#2c3e50;">النتائج القادمة من الموقع الأصلي:</label>
+            <div class="result-box">
+                <pre id="jsonResult" style="margin: 0; white-space: pre-wrap; word-break: break-all;"></pre>
             </div>
-
-            <form id="mojazSearchForm" class="space-y-5">
-                <div>
-                    <label class="block text-xs font-bold text-gray-700 mb-2">الرقم التسلسلي / رقم الهيكل <span class="text-red-500">*</span></label>
-                    <input type="text" id="sequenceNumberInput" required placeholder="مثال: 991564310" 
-                        class="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#008B7D] focus:border-[#008B7D] outline-none transition placeholder-gray-400">
-                </div>
-
-                <button type="submit" id="initSearchBtn" class="w-full py-3.5 mojaz-primary-btn text-white font-bold text-base rounded-xl shadow-md transition duration-200">
-                    اطلب التقرير
-                </button>
-            </form>
-
-            <div id="vehicleCardContainer" class="hidden pt-4 border-t border-gray-100"></div>
-        </div>
-    </main>
-
-    <div id="captchaModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 text-right space-y-5 shadow-2xl border border-gray-100">
-            
-            <div class="flex justify-between items-center border-b border-gray-100 pb-3">
-                <h3 class="text-base font-bold text-gray-800">رمز التحقق المرئي (الكابتشا)</h3>
-                <button type="button" id="closeCaptchaModal" class="text-gray-400 hover:text-gray-600 font-bold text-xl">&times;</button>
-            </div>
-
-            <p class="text-xs text-gray-500 leading-relaxed">يرجى إدخال رمز التحقق الظاهر بالصورة لاستكمال عملية الاستعلام:</p>
-
-            <div class="flex items-center gap-3 bg-gray-50 p-2.5 rounded-xl border border-gray-200">
-                <div class="flex-1 bg-white border border-gray-200 rounded-lg h-14 flex items-center justify-center overflow-hidden shadow-inner">
-                    <img id="modalCaptchaImg" src="" alt="جاري التحميل..." class="h-full object-contain">
-                </div>
-                <button type="button" id="modalReloadCaptcha" class="px-3 py-2 text-xs font-bold text-[#008B7D] bg-white border border-[#008B7D] rounded-lg hover:bg-teal-50 transition">
-                    تحديث 🔄
-                </button>
-            </div>
-
-            <div>
-                <input type="text" id="modalCaptchaInput" placeholder="أدخل الرقم هنا" required
-                    class="w-full text-center font-bold text-xl tracking-widest p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#008B7D]">
-            </div>
-
-            <button type="button" id="modalSubmitBtn" class="w-full py-3.5 mojaz-primary-btn text-white font-bold text-base rounded-xl shadow-md transition">
-                تأكيد واستعلام
-            </button>
         </div>
     </div>
 
-    <footer class="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
-        جميع الحقوق محفوظة لموقع موجز © 2026
-    </footer>
+    <div id="captchaModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 style="margin-top:0; color:#2c3e50;">التحقق من الكابتشا</h3>
+            <p style="font-size:13px; color:#666; margin-bottom:10px;">يرجى إدخال الرمز الظاهر بالصورة لإكمال البحث:</p>
+            
+            <div class="captcha-img-container">
+                <img id="modalCaptchaImg" src="" alt="رمز الكابتشا">
+            </div>
+
+            <div class="form-group">
+                <input type="text" id="modalCaptchaInput" placeholder="أدخل الرمز هنا..." autocomplete="off">
+            </div>
+
+            <button type="button" onclick="submitCaptcha()" class="btn-submit">تأكيد وإرسال</button>
+        </div>
+    </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.getElementById('mojazSearchForm');
-            const sequenceInput = document.getElementById('sequenceNumberInput');
-            const initBtn = document.getElementById('initSearchBtn');
+        let currentPhone = '';
+        let currentSessionCookie = '';
+        let currentRequestTimestamp = '';
 
-            const captchaModal = document.getElementById('captchaModal');
-            const closeCaptchaModalBtn = document.getElementById('closeCaptchaModal');
-            const modalCaptchaImg = document.getElementById('modalCaptchaImg');
-            const modalCaptchaInput = document.getElementById('modalCaptchaInput');
-            const modalReloadBtn = document.getElementById('modalReloadCaptcha');
-            const modalSubmitBtn = document.getElementById('modalSubmitBtn');
+        async function startSearch(e) {
+            e.preventDefault();
 
-            const vehicleCardContainer = document.getElementById('vehicleCardContainer');
+            currentPhone = document.getElementById('phoneNumber').value.trim();
+            if (!currentPhone) return;
 
-            let currentSessionCookie = '';
-            let currentCaptchaUuid = '';
+            const statusMsg = document.getElementById('statusMsg');
+            const resultContainer = document.getElementById('resultContainer');
+            const submitBtn = document.getElementById('submitBtn');
 
-            async function fetchCaptcha() {
-                modalCaptchaImg.src = '';
-                modalCaptchaImg.alt = 'جاري جلب الكابتشا...';
-                modalCaptchaInput.value = '';
+            resultContainer.style.display = 'none';
+            statusMsg.className = 'status-msg status-loading';
+            statusMsg.innerText = 'جاري الاتصال بالموقع الأصلي...';
+            statusMsg.style.display = 'block';
+            submitBtn.disabled = true;
 
-                try {
-                    const response = await fetch('/api/proxy-search', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({})
-                    });
-                    const data = await response.json();
+            await sendRequest({ phoneNumber: currentPhone });
+        }
 
-                    if (data.requireCaptcha) {
-                        modalCaptchaImg.src = data.captchaImage;
-                        currentSessionCookie = data.sessionCookie || '';
-                        currentCaptchaUuid = data.captchaUuid || '';
-                    }
-                } catch (err) {
-                    modalCaptchaImg.alt = 'فشل جلب الصورة';
+        async function sendRequest(payload) {
+            const statusMsg = document.getElementById('statusMsg');
+            const submitBtn = document.getElementById('submitBtn');
+
+            try {
+                const res = await fetch('/api/proxy-search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await res.json();
+
+                if (result.requireCaptcha) {
+                    statusMsg.style.display = 'none';
+                    if (result.sessionCookie) currentSessionCookie = result.sessionCookie;
+                    if (result.requestTimestamp) currentRequestTimestamp = result.requestTimestamp;
+
+                    document.getElementById('modalCaptchaImg').src = result.captchaImage;
+                    document.getElementById('captchaModal').style.display = 'flex';
+                } 
+                else if (result.success) {
+                    closeCaptchaModal();
+                    statusMsg.style.display = 'none';
+                    document.getElementById('jsonResult').innerText = JSON.stringify(result.data, null, 2);
+                    document.getElementById('resultContainer').style.display = 'block';
+                    submitBtn.disabled = false;
+                } 
+                else {
+                    closeCaptchaModal();
+                    statusMsg.className = 'status-msg status-error';
+                    statusMsg.innerText = result.message || 'فشل جلب النتائج';
+                    submitBtn.disabled = false;
                 }
+            } catch (err) {
+                closeCaptchaModal();
+                statusMsg.className = 'status-msg status-error';
+                statusMsg.innerText = 'حدث خطأ في الاتصال بالسيرفر الوسيط';
+                submitBtn.disabled = false;
+            }
+        }
+
+        async function submitCaptcha() {
+            const captchaCode = document.getElementById('modalCaptchaInput').value.trim();
+            if (!captchaCode) {
+                alert('يرجى إدخال رمز الكابتشا أولاً');
+                return;
             }
 
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const sequenceVal = sequenceInput.value.trim();
-                if (!sequenceVal) return;
+            closeCaptchaModal();
+            
+            const statusMsg = document.getElementById('statusMsg');
+            statusMsg.className = 'status-msg status-loading';
+            statusMsg.innerText = 'جاري إرسال الطلب وإحضار البيانات...';
+            statusMsg.style.display = 'block';
 
-                initBtn.disabled = true;
-                initBtn.innerText = 'جاري التحضير...';
-
-                await fetchCaptcha();
-                captchaModal.classList.remove('hidden');
-
-                initBtn.disabled = false;
-                initBtn.innerText = 'اطلب التقرير';
+            await sendRequest({
+                phoneNumber: currentPhone,
+                captchaCode: captchaCode,
+                sessionCookie: currentSessionCookie,
+                requestTimestamp: currentRequestTimestamp
             });
 
-            modalReloadBtn.addEventListener('click', fetchCaptcha);
+            document.getElementById('modalCaptchaInput').value = '';
+        }
 
-            closeCaptchaModalBtn.addEventListener('click', () => {
-                captchaModal.classList.add('hidden');
-            });
-
-            modalSubmitBtn.addEventListener('click', async () => {
-                const captchaCode = modalCaptchaInput.value.trim();
-                const sequenceVal = sequenceInput.value.trim();
-
-                if (!captchaCode) {
-                    alert('يرجى إدخال رمز الكابتشا');
-                    return;
-                }
-
-                modalSubmitBtn.disabled = true;
-                modalSubmitBtn.innerText = 'جاري البحث...';
-
-                try {
-                    const response = await fetch('/api/proxy-search', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            phoneNumber: sequenceVal,
-                            captchaCode: captchaCode,
-                            sessionCookie: currentSessionCookie,
-                            captchaUuid: currentCaptchaUuid
-                        })
-                    });
-
-                    const resData = await response.json();
-                    captchaModal.classList.add('hidden');
-
-                    console.log('بيانات الاستجابة القادمة:', resData);
-
-                    // استخراج كائن المركبة باستخدام الدالة العميقة
-                    const vehicleData = extractVehicleData(resData);
-
-                    if (vehicleData) {
-                        renderVehicleCard(vehicleData);
-                    } else {
-                        const errMsg = resData.message || 'تعذر استخراج بيانات المركبة، يرجى إعادة المحاولة.';
-                        alert('تنبيه: ' + errMsg);
-                    }
-                } catch (err) {
-                    alert('حدث خطأ أثناء الاتصال بالسيرفر الوسيط');
-                } finally {
-                    modalSubmitBtn.disabled = false;
-                    modalSubmitBtn.innerText = 'تأكيد واستعلام';
-                }
-            });
-
-            // دالة استخراج ذكية وشاملة تبحث في كافة طيات الاستجابة
-            function extractVehicleData(data) {
-                if (!data) return null;
-
-                function tryParse(item) {
-                    if (typeof item === 'string') {
-                        try { return JSON.parse(item); } catch (e) { return item; }
-                    }
-                    return item;
-                }
-
-                let targetVehicle = null;
-
-                function scan(node) {
-                    if (!node || targetVehicle) return;
-
-                    node = tryParse(node);
-                    if (typeof node !== 'object' || node === null) return;
-
-                    // فحص خصائص المركبة الأساسية
-                    const maker = node.vehicleMaker || node.maker || node.make;
-                    const vin = node.vin || node.chassisNumber;
-                    const seq = node.sequenceNumber || node.sequence;
-                    const model = node.vehicleModel || node.model;
-
-                    if (maker || vin || (seq && model)) {
-                        targetVehicle = node;
-                        return;
-                    }
-
-                    if (Array.isArray(node)) {
-                        for (let element of node) {
-                            scan(element);
-                            if (targetVehicle) return;
-                        }
-                    } else {
-                        for (let key in node) {
-                            if (Object.prototype.hasOwnProperty.call(node, key)) {
-                                scan(node[key]);
-                                if (targetVehicle) return;
-                            }
-                        }
-                    }
-                }
-
-                scan(data);
-                return targetVehicle;
-            }
-
-            // دالة تنسيق وترتيب البيانات بشكل منظم وجذاب
-            function renderVehicleCard(data) {
-                if (!data) return;
-
-                const maker = data.vehicleMaker || data.maker || 'غير محدد';
-                const model = data.vehicleModel || data.model || '';
-                const year = data.modelYear || data.year || 'غير محدد';
-                const seq = data.sequenceNumber || data.sequence || sequenceInput.value.trim();
-                const vin = data.vin || data.chassisNumber || '-';
-                const customId = data.customId || data.customCardNumber || '-';
-                
-                // تجميع تفاصيل اللوحة
-                let plate = data.plateDesc || '';
-                if (!plate && data.plateNumber) {
-                    plate = `${data.letterOne || ''} ${data.letterTwo || ''} ${data.letterThree || ''} - ${data.plateNumber}`;
-                }
-                if (!plate) plate = 'غير متوفرة';
-
-                const makerLetter = maker !== 'غير محدد' ? maker.trim().charAt(0) : '🚗';
-
-                vehicleCardContainer.innerHTML = `
-                    <div class="bg-gradient-to-br from-teal-50/80 via-white to-gray-50 p-6 rounded-2xl border border-teal-100 shadow-lg space-y-5 text-right transition-all">
-                        
-                        <div class="flex justify-between items-center border-b border-teal-100 pb-4">
-                            <div>
-                                <span class="bg-[#008B7D] text-white text-[11px] font-bold px-3 py-1 rounded-full inline-block mb-1.5 shadow-sm">
-                                    ✓ تم العثور على المركبة
-                                </span>
-                                <h3 class="text-2xl font-black text-gray-900 leading-tight">${maker} ${model}</h3>
-                                <p class="text-xs text-gray-500 font-semibold mt-1">سنة الصنع: <span class="text-gray-800 font-bold">${year}</span></p>
-                            </div>
-                            <div class="w-14 h-14 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center text-2xl font-black text-[#005A52]">
-                                ${makerLetter}
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-xs">
-                            
-                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
-                                <span class="text-gray-400 font-medium block mb-1">الرقم التسلسلي</span>
-                                <span class="font-bold text-gray-900 text-sm tracking-wide font-mono">${seq}</span>
-                            </div>
-
-                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
-                                <span class="text-gray-400 font-medium block mb-1">رقم اللوحة</span>
-                                <span class="font-bold text-[#005A52] text-sm">${plate}</span>
-                            </div>
-
-                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
-                                <span class="text-gray-400 font-medium block mb-1">رقم الهيكل (VIN)</span>
-                                <span class="font-bold text-gray-900 text-sm tracking-wide font-mono uppercase">${vin}</span>
-                            </div>
-
-                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
-                                <span class="text-gray-400 font-medium block mb-1">الرقم الجمركي</span>
-                                <span class="font-bold text-gray-900 text-sm tracking-wide font-mono">${customId}</span>
-                            </div>
-
-                        </div>
-
-                        <button type="button" class="w-full py-3.5 bg-[#008B7D] hover:bg-[#00766A] text-white font-bold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2">
-                            <span>عرض التقرير الشامل</span>
-                            <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"></path></svg>
-                        </button>
-                    </div>
-                `;
-
-                vehicleCardContainer.classList.remove('hidden');
-            }
-        });
+        function closeCaptchaModal() {
+            document.getElementById('captchaModal').style.display = 'none';
+        }
     </script>
 </body>
 </html>

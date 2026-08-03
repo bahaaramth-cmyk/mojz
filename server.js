@@ -20,8 +20,8 @@ function getSettings() {
             captchaImgUrl: '', 
             createRequestUrl: '', 
             getReportUrl: '', 
-            phoneField: 'phone',
-            captchaField: 'captcha',
+            phoneField: 'sequenceNumber',
+            captchaField: 'jcaptcha',
             extraPayload: {},
             headers: {} 
         };
@@ -29,7 +29,7 @@ function getSettings() {
     try {
         return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
-        return { captchaImgUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'phone', captchaField: 'captcha', extraPayload: {}, headers: {} };
+        return { captchaImgUrl: '', createRequestUrl: '', getReportUrl: '', phoneField: 'sequenceNumber', captchaField: 'jcaptcha', extraPayload: {}, headers: {} };
     }
 }
 
@@ -171,11 +171,11 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. إرسال createRequest و getReportPrice
+    // 2. إرسال createRequest مع بناء الـ Payload المطلوب بالضبط
     // -------------------------------------------------------------
     try {
-        const captchaFieldName = config.captchaField || 'captcha';
-        const phoneFieldName = config.phoneField || 'phone';
+        const captchaFieldName = config.captchaField || 'jcaptcha';
+        const phoneFieldName = config.phoneField || 'sequenceNumber';
 
         const requestHeaders = {
             ...baseHeaders,
@@ -184,21 +184,26 @@ app.post('/api/proxy-search', async (req, res) => {
             ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
         };
 
+        // بناء الـ Body المكون من الكابتشا ومصفوفة vehicles الحقيقية
         const mergedPayload = {
-            "device_id": dynamicDeviceId,
-            "deviceId": dynamicDeviceId,
-            ...(config.extraPayload || {}),
-            [phoneFieldName]: phoneNumber,
-            [captchaFieldName]: captchaCode
+            [captchaFieldName]: captchaCode,
+            "vehicles": [
+                {
+                    [phoneFieldName]: phoneNumber
+                }
+            ],
+            ...(config.extraPayload || {})
         };
 
         // 1. createRequest
-        console.log(`--- [2] إرسال createRequest ---`);
+        console.log(`--- [2] إرسال createRequest بالـ Payload المطابق ---`, JSON.stringify(mergedPayload));
         const createRes = await axios.post(
             config.createRequestUrl.trim(), 
             mergedPayload, 
             { headers: requestHeaders, httpsAgent: httpsAgent }
         );
+
+        console.log('استجابة createRequest الناجحة:', createRes.data);
 
         // 2. getReportPrice
         const reportPayload = {

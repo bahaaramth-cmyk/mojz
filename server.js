@@ -56,7 +56,19 @@ app.post('/api/proxy-search', async (req, res) => {
     const config = getSettings();
     const dynamicDeviceId = generateDynamicDeviceId();
 
-    // إنشاء متصفح وهمي بحافظة كوكيز مستمرة وتأكيد النطاق
+    if (!config.captchaImgUrl) {
+        return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
+    }
+
+    // استخراج النطاق الحقيقي تلقائياً من رابط الكابتشا
+    let targetOrigin = 'https://mojaz.com.sa';
+    try {
+        const parsedUrl = new URL(config.captchaImgUrl.trim());
+        targetOrigin = parsedUrl.origin;
+    } catch (e) {
+        console.error('خطأ في استخراج Origin من الرابط');
+    }
+
     const jar = new CookieJar();
     const client = wrapper(axios.create({ 
         jar, 
@@ -71,8 +83,8 @@ app.post('/api/proxy-search', async (req, res) => {
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
         'x-api-version': 'v2',
-        'Origin': 'https://xxxtestxxx.com',
-        'Referer': 'https://xxxtestxxx.com/mojaz/',
+        'Origin': targetOrigin,
+        'Referer': `${targetOrigin}/mojaz/`,
         'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -86,28 +98,25 @@ app.post('/api/proxy-search', async (req, res) => {
     // 1. مرحلة جلب الكابتشا
     // -------------------------------------------------------------
     if (!captchaCode) {
-        if (!config.captchaImgUrl) {
-            return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
-        }
-
         try {
-            // خطوة تهيئة الجلسة: فتح الصفحة الرئيسية لحل تشفير 403 وجلب الكوكيز الأمنية
-            console.log('--- [0] إرسال طلب أولي للصفحة الرئيسية لتجاوز حظر 403 ---');
-            await client.get('https://xxxtestxxx.com/mojaz/', { headers: baseHeaders, timeout: 10000 });
+            // تهيئة الجلسة بزيارة الصفحة الرئيسية للنطاق الحقيقي
+            console.log(`--- [0] بدء تهيئة الجلسة من النطاق الحقيقي: ${targetOrigin}/mojaz/ ---`);
+            await client.get(`${targetOrigin}/mojaz/`, { headers: baseHeaders, timeout: 8000 }).catch(() => {
+                console.log('تنبيه: فشل فتح الصفحة الرئيسية، سيتم المحاولة المباشرة مع الكابتشا...');
+            });
 
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] جلب الكابتشا عبر الجلسة المحمية: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] جلب الكابتشا من: ${fullCaptchaUrl} ---`);
 
             const imgRes = await client.get(fullCaptchaUrl, { 
                 headers: baseHeaders,
                 timeout: 10000 
             });
 
-            // استخراج الكوكيز المتولدة تلقائياً من Jar
-            const cookieString = await jar.getCookieString('https://xxxtestxxx.com');
+            const cookieString = await jar.getCookieString(targetOrigin);
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {

@@ -14,6 +14,9 @@ app.use(cors());
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
+// ذاكرة مؤقتة لربط الكوكيز بالـ captchaUuid الخاص بها
+const sessionUuidStore = new Map();
+
 function getSettings() {
     if (!fs.existsSync(CONFIG_PATH)) {
         return { 
@@ -108,7 +111,7 @@ app.post('/api/proxy-search', async (req, res) => {
     };
 
     // -------------------------------------------------------------
-    // 1. جلب الكابتشا واستخراج الـ UUID والدقة الزمنية
+    // 1. جلب الكابتشا وتخزين الـ UUID في الذاكرة
     // -------------------------------------------------------------
     if (!captchaCode) {
         try {
@@ -127,7 +130,6 @@ app.post('/api/proxy-search', async (req, res) => {
 
             const initialCookieString = buildCookieString(cookieMap);
 
-            // توليد صيغة الوقت الحقيقية
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
@@ -146,7 +148,6 @@ app.post('/api/proxy-search', async (req, res) => {
             mergeAndDeduplicateCookies(cookieMap, imgRes.headers['set-cookie']);
             const finalSessionCookie = buildCookieString(cookieMap);
 
-            // جلب الهيدر الخاص بالـ captcha-uuid بأي صيغة قد تُرجعها استجابة موجز
             let extractedUuid = imgRes.headers['captcha-uuid'] || 
                                 imgRes.headers['captcha_uuid'] || 
                                 imgRes.headers['x-captcha-uuid'] || 
@@ -154,6 +155,11 @@ app.post('/api/proxy-search', async (req, res) => {
 
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
                 extractedUuid = imgRes.data.captchaUuid || imgRes.data.uuid || imgRes.data.captcha_uuid || '';
+            }
+
+            // حفظ الـ UUID في الذاكرة المربوطة بالسلسلة
+            if (extractedUuid) {
+                sessionUuidStore.set(finalSessionCookie, extractedUuid);
             }
 
             let base64Image = '';
@@ -196,22 +202,25 @@ app.post('/api/proxy-search', async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // 2. إرسال createRequest مع تمرير الـ captcha-uuid في الهيدر والـ Body
+    // 2. إرسال createRequest بجلب الـ UUID المحفوظ تلقائياً
     // -------------------------------------------------------------
     try {
         const captchaFieldName = config.captchaField || 'jcaptcha';
         const phoneFieldName = config.phoneField || 'sequenceNumber';
 
-        console.log(`--- [2] Submitting Search using Client Bound Session ---`);
+        // استرجاع الـ UUID القادم من الذاكرة أو من الطلب المباشر
+        const activeUuid = captchaUuid || sessionUuidStore.get(sessionCookie || '') || '';
+
+        console.log(`--- [2] Submitting Search with UUID: [${activeUuid}] ---`);
 
         const requestHeaders = {
             ...baseHeaders,
             'Content-Type': 'application/json',
             'Cookie': sessionCookie || '',
-            ...(captchaUuid ? { 
-                'captcha-uuid': captchaUuid, 
-                'captcha_uuid': captchaUuid,
-                'x-captcha-uuid': captchaUuid 
+            ...(activeUuid ? { 
+                'captcha-uuid': activeUuid, 
+                'captcha_uuid': activeUuid,
+                'x-captcha-uuid': activeUuid 
             } : {})
         };
 
@@ -222,7 +231,7 @@ app.post('/api/proxy-search', async (req, res) => {
                     [phoneFieldName]: phoneNumber
                 }
             ],
-            ...(captchaUuid ? { "captchaUuid": captchaUuid, "captcha_uuid": captchaUuid } : {}),
+            ...(activeUuid ? { "captchaUuid": activeUuid, "captcha_uuid": activeUuid } : {}),
             ...(config.extraPayload || {})
         };
 
@@ -234,6 +243,9 @@ app.post('/api/proxy-search', async (req, res) => {
         );
 
         console.log('createRequest Success:', createRes.data);
+
+        // مسح الـ UUID من الذاكرة بعد الاستخدام
+        sessionUuidStore.delete(sessionCookie || '');
 
         const reportPayload = {
             ...mergedPayload,

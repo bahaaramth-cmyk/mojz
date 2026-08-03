@@ -74,6 +74,28 @@ app.post('/api/settings', (req, res) => {
     }
 });
 
+// وكيل جلب الصور لتخطي حظر الحماية على الشعار من سيرفر موجز
+app.get('/api/image-proxy', async (req, res) => {
+    try {
+        const imageUrl = req.query.url;
+        if (!imageUrl) return res.status(400).send('URL required');
+
+        const response = await axios.get(imageUrl, {
+            responseType: 'arraybuffer',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+                'Referer': 'https://mojaz.com.sa/'
+            },
+            httpsAgent: httpsAgent
+        });
+
+        res.set('Content-Type', response.headers['content-type'] || 'image/png');
+        res.send(response.data);
+    } catch (e) {
+        res.status(404).send('Image not found');
+    }
+});
+
 app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie, captchaUuid } = req.body;
     const config = getSettings();
@@ -108,7 +130,7 @@ app.post('/api/proxy-search', async (req, res) => {
         ...(config.headers || {})
     };
 
-    // 1. طلب جلب الكابتشا
+    // 1. جلب صورة الكابتشا
     if (!captchaCode) {
         try {
             const cookieMap = new Map();
@@ -191,7 +213,7 @@ app.post('/api/proxy-search', async (req, res) => {
         }
     }
 
-    // 2. طلب إرسال createRequest مباشرة
+    // 2. إرسال طلب createRequest
     try {
         const captchaFieldName = config.captchaField || 'jcaptcha';
         const phoneFieldName = config.phoneField || 'sequenceNumber';

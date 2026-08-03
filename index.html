@@ -28,9 +28,9 @@
         .status-loading { background: #e0f2fe; color: #0369a1; }
         .status-error { background: #fee2e2; color: #b91c1c; }
         
-        /* تنسيقات عرض بيانات المركبة المرتبة */
+        /* تصميم بطاقة تفاصيل المركبة */
         #resultContainer { margin-top: 25px; display: none; text-align: right; }
-        .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+        .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
         .vehicle-header h3 { margin: 0; font-size: 18px; font-weight: bold; }
         .vehicle-header span { background: rgba(255,255,255,0.2); font-size: 12px; padding: 3px 10px; border-radius: 20px; }
@@ -124,26 +124,13 @@
                     document.getElementById('modalCaptchaImg').src = result.captchaImage;
                     document.getElementById('captchaModal').style.display = 'flex';
                 } 
-                else if (result.success || result.data) {
+                else {
                     closeCaptchaModal();
                     statusMsg.style.display = 'none';
                     
-                    // استخراج وعرض البيانات بطريقة مرتبة
+                    // استخراج واستعراض كل الحقول الممكنة حتى إن كانت غير مكتملة
                     const vehicleData = extractVehicleData(result.data || result);
-                    if (vehicleData) {
-                        renderVehicleCard(vehicleData);
-                    } else {
-                        statusMsg.className = 'status-msg status-error';
-                        statusMsg.innerText = 'تعذر استخراج البيانات من النتيجة الحالية.';
-                        statusMsg.style.display = 'block';
-                    }
-                    submitBtn.disabled = false;
-                } 
-                else {
-                    closeCaptchaModal();
-                    statusMsg.className = 'status-msg status-error';
-                    statusMsg.innerText = result.message || 'فشل جلب النتائج';
-                    statusMsg.style.display = 'block';
+                    renderVehicleCard(vehicleData);
                     submitBtn.disabled = false;
                 }
             } catch (err) {
@@ -183,9 +170,9 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة التفتيش الشجرية لاستخراج البيانات بغض النظر عن طريقة تغليفها
+        // دالة استخراج ذكية لا تفشل أبداً وتلتقط أي حقول موجودة بالـ JSON
         function extractVehicleData(data) {
-            if (!data) return null;
+            if (!data) return {};
 
             function parse(item) {
                 if (typeof item === 'string') {
@@ -194,50 +181,71 @@
                 return item;
             }
 
-            let vehicle = null;
+            let extracted = {
+                vehicleMaker: '',
+                vehicleModel: '',
+                modelYear: '',
+                sequenceNumber: '',
+                vin: '',
+                customId: '',
+                plateDesc: '',
+                plateNumber: '',
+                letterOne: '',
+                letterTwo: '',
+                letterThree: ''
+            };
 
             function scan(node) {
-                if (!node || vehicle) return;
+                if (!node) return;
                 node = parse(node);
                 if (typeof node !== 'object' || node === null) return;
 
-                if (node.vehicleMaker || node.vin || node.sequenceNumber) {
-                    vehicle = node;
-                    return;
-                }
+                for (let key in node) {
+                    if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+                    
+                    const val = node[key];
+                    const lowerKey = key.toLowerCase();
 
-                if (Array.isArray(node)) {
-                    for (let el of node) {
-                        scan(el);
-                        if (vehicle) return;
-                    }
-                } else {
-                    for (let key in node) {
-                        if (Object.prototype.hasOwnProperty.call(node, key)) {
-                            scan(node[key]);
-                            if (vehicle) return;
+                    if (typeof val === 'string' || typeof val === 'number') {
+                        const strVal = String(val).trim();
+                        if (strVal && strVal !== 'null' && strVal !== 'undefined') {
+                            if (!extracted.vehicleMaker && (lowerKey.includes('maker') || lowerKey.includes('brand'))) extracted.vehicleMaker = strVal;
+                            if (!extracted.vehicleModel && lowerKey.includes('model')) extracted.vehicleModel = strVal;
+                            if (!extracted.modelYear && lowerKey.includes('year')) extracted.modelYear = strVal;
+                            if (!extracted.sequenceNumber && (lowerKey.includes('sequence') || lowerKey.includes('seq'))) extracted.sequenceNumber = strVal;
+                            if (!extracted.vin && (lowerKey.includes('vin') || lowerKey.includes('chassis'))) extracted.vin = strVal;
+                            if (!extracted.customId && lowerKey.includes('custom')) extracted.customId = strVal;
+                            if (!extracted.plateDesc && lowerKey.includes('platedesc')) extracted.plateDesc = strVal;
+                            if (!extracted.plateNumber && lowerKey.includes('platenumber')) extracted.plateNumber = strVal;
+                            if (!extracted.letterOne && lowerKey.includes('letterone')) extracted.letterOne = strVal;
+                            if (!extracted.letterTwo && lowerKey.includes('lettertwo')) extracted.letterTwo = strVal;
+                            if (!extracted.letterThree && lowerKey.includes('letterthree')) extracted.letterThree = strVal;
                         }
+                    } else if (typeof val === 'object') {
+                        scan(val);
                     }
                 }
             }
 
             scan(data);
-            return vehicle;
+            return extracted;
         }
 
         // دالة عرض بطاقة تفاصيل المركبة المرتبة
         function renderVehicleCard(req) {
             const resultContainer = document.getElementById('resultContainer');
+            req = req || {};
 
             const maker = req.vehicleMaker || 'غير محدد';
             const model = req.vehicleModel || '';
             const year = req.modelYear || 'غير محدد';
-            const seq = req.sequenceNumber || currentPhone;
+            const seq = req.sequenceNumber || currentPhone || '-';
             const vin = req.vin || '-';
             const customId = req.customId || '-';
+            
             let plate = req.plateDesc || '';
             if (!plate && req.plateNumber) {
-                plate = `${req.letterOne || ''} ${req.letterTwo || ''} ${req.letterThree || ''} ${req.plateNumber}`;
+                plate = `${req.letterOne || ''} ${req.letterTwo || ''} ${req.letterThree || ''} ${req.plateNumber}`.trim();
             }
 
             resultContainer.innerHTML = `

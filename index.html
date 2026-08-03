@@ -28,14 +28,13 @@
         .status-loading { background: #e0f2fe; color: #0369a1; }
         .status-error { background: #fee2e2; color: #b91c1c; }
         
-        /* تصميم كرت النتائج والشعار */
         #resultContainer { margin-top: 25px; display: none; text-align: right; }
         .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         
         .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
         .header-title-box { display: flex; align-items: center; gap: 14px; }
         
-        /* حاوية الشعار */
+        /* مربع الشعار */
         .maker-logo-container { width: 52px; height: 52px; background: #ffffff; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
         .maker-logo-container img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
         .maker-logo-container .logo-fallback { font-size: 24px; font-weight: 900; color: #005A52; }
@@ -220,7 +219,7 @@
             return null;
         }
 
-        // دالة تحويل مسارات الشعار النسبية إلى روابط مباشرة على سيرفر موجز
+        // دالة تحويل المسارات النسبية ورابط الشعار واستدعائه عبر Proxy
         function extractLogoUrl(req) {
             if (!req) return null;
             
@@ -236,20 +235,20 @@
             if (!rawPath && req.logoUrl) rawPath = req.logoUrl;
             if (!rawPath && req.makerLogoUrl) rawPath = req.makerLogoUrl;
 
-            // بناء المسار تلقائياً إذا توفر اسم الشركة بالإنجليزية
             if (!rawPath && req.vehicleMakerEn) {
                 rawPath = `./assets/makersLogos/${req.vehicleMakerEn.toLowerCase()}.png`;
             }
 
             if (!rawPath) return null;
 
-            // تحويل المسار النسبي إلى رابط كامل يستهدف موقع موجز الرسمي
+            let targetFullUrl = rawPath;
+
             if (rawPath.startsWith('./') || rawPath.startsWith('/') || rawPath.startsWith('assets/')) {
-                const cleanPath = rawPath.replace(/^\.?\//, ''); // إزالة ./ أو / من البداية
-                return `https://mojaz.com.sa/${cleanPath}`;
+                const cleanPath = rawPath.replace(/^\.?\//, '');
+                targetFullUrl = `https://mojaz.com.sa/mojaz/${cleanPath.replace(/^mojaz\//, '')}`;
             }
 
-            return rawPath;
+            return `/api/image-proxy?url=${encodeURIComponent(targetFullUrl)}`;
         }
 
         function renderVehicleCard(req) {
@@ -273,11 +272,9 @@
             const requestId = cleanVal(req.id);
             const source = cleanVal(req.source);
             
-            // جلب رابط الشعار الكامل
             const logoUrl = extractLogoUrl(req);
             const fallbackChar = maker !== '-' ? maker.trim().charAt(0) : '🚗';
 
-            // تركيب رقم اللوحة
             let plateStr = cleanVal(req.plateDesc);
             if (plateStr === '-') {
                 const l1 = cleanVal(req.letterOne);

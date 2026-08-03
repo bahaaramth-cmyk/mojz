@@ -3,117 +3,332 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة التحكم والتحليلات اللحظية</title>
+    <title>لوحة التحكم - صندوق وارد الزوار</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background: #0f172a; color: #f8fafc; margin: 0; padding: 25px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid #1e293b; padding-bottom: 15px; }
-        .header h1 { font-size: 22px; color: #38bdf8; margin: 0; }
-        .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; display: inline-block; margin-left: 8px; }
-
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .stat-card { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
-        .stat-card h3 { margin: 0; font-size: 13px; color: #94a3b8; }
-        .stat-card p { margin: 10px 0 0 0; font-size: 28px; font-weight: bold; color: #38bdf8; }
-
-        .table-container { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
-        .table-container h2 { font-size: 16px; margin-top: 0; margin-bottom: 15px; color: #f1f5f9; }
+        body { background: #0f172a; color: #f8fafc; margin: 0; padding: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
         
-        table { width: 100%; border-collapse: collapse; text-align: right; }
-        th, td { padding: 12px; border-bottom: 1px solid #334155; font-size: 13px; }
-        th { color: #94a3b8; font-weight: 600; }
+        /* الهيدر العلوي */
+        .header { height: 60px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; padding: 0 25px; flex-shrink: 0; }
+        .header h1 { font-size: 18px; color: #38bdf8; margin: 0; display: flex; align-items: center; gap: 10px; }
+        .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; box-shadow: 0 0 8px #22c55e; }
         
-        .token-badge { background: #0284c7; color: white; padding: 3px 8px; border-radius: 6px; font-family: monospace; font-size: 11px; }
-        .status-success { color: #4ade80; font-weight: bold; }
-        .status-fail { color: #f87171; font-weight: bold; }
-        
-        .btn-view { background: #334155; color: #38bdf8; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
-        .btn-view:hover { background: #475569; }
+        .stats-summary { display: flex; gap: 20px; font-size: 13px; color: #94a3b8; }
+        .stats-summary span strong { color: #f8fafc; font-size: 15px; margin-right: 4px; }
 
-        .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 100; }
-        .modal-content { background: #1e293b; padding: 20px; border-radius: 10px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; color: #f8fafc; font-family: monospace; font-size: 12px; }
+        /* الشاشة الرئيسية بنمط صندوق الوارد Inbox */
+        .inbox-container { display: flex; flex: 1; height: calc(100vh - 60px); overflow: hidden; }
+
+        /* القائمة اليمنى - الزوار */
+        .visitors-sidebar { width: 320px; background: #0f172a; border-left: 1px solid #1e293b; overflow-y: auto; display: flex; flex-direction: column; }
+        .sidebar-title { padding: 15px 20px; font-size: 13px; font-weight: bold; color: #64748b; border-bottom: 1px solid #1e293b; text-transform: uppercase; }
+        
+        .visitor-item { padding: 16px 20px; border-bottom: 1px solid #1e293b; cursor: pointer; transition: all 0.2s ease; display: flex; flex-direction: column; gap: 6px; position: relative; }
+        .visitor-item:hover { background: #1e293b; }
+        .visitor-item.active { background: #1e293b; border-right: 4px solid #38bdf8; }
+        
+        /* إشعار الحركة واللون عند وجود تسجيل جديد */
+        .visitor-item.new-activity { animation: flashHighlight 1.5s ease-out; }
+        @keyframes flashHighlight {
+            0% { background-color: #065f46; }
+            100% { background-color: #1e293b; }
+        }
+
+        .visitor-token { font-family: monospace; font-size: 13px; font-weight: bold; color: #38bdf8; }
+        .visitor-meta { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; }
+        .badge-count { background: #334155; color: #cbd5e1; font-size: 10px; padding: 2px 6px; border-radius: 10px; }
+
+        /* المنطقة اليسرى - المحادثة/السجل */
+        .details-content { flex: 1; background: #1a2234; display: flex; flex-direction: column; overflow-y: auto; padding: 25px; }
+        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #64748b; font-size: 14px; gap: 10px; }
+
+        .visitor-header-details { background: #1e293b; padding: 15px 20px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+
+        /* سجل المدخلات على شكل كروت محادثة */
+        .logs-timeline { display: flex; flex-direction: column; gap: 15px; }
+        .log-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .log-info { display: flex; flex-direction: column; gap: 4px; }
+        .log-input { font-size: 16px; font-weight: bold; color: #f8fafc; font-family: monospace; }
+        .log-time { font-size: 11px; color: #64748b; }
+
+        .btn-view-result { background: #0284c7; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        .btn-view-result:hover { background: #0369a1; }
+
+        /* المودال الشفاف للنتائج مع إمكانية النقر للإغلاق */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-card { background: #ffffff; color: #1a202c; border-radius: 12px; width: 90%; max-width: 520px; overflow: hidden; position: relative; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+        
+        .modal-close-btn { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.3); color: white; border: none; width: 30px; height: 30px; border-radius: 50%; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.2s; }
+        .modal-close-btn:hover { background: rgba(0,0,0,0.6); }
+
+        /* تصميم كرت المركبة المنسق بنفس شكل الزائر */
+        .vehicle-card { background: #ffffff; }
+        .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header-title-box { display: flex; align-items: center; gap: 12px; }
+        .maker-logo-container { width: 48px; height: 48px; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 4px; flex-shrink: 0; }
+        .maker-logo-container img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .maker-logo-container .logo-fallback { font-size: 22px; font-weight: 800; color: #005A52; }
+        .vehicle-header h3 { margin: 0; font-size: 17px; font-weight: bold; }
+        
+        .vehicle-grid { padding: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: right; }
+        .grid-item { background: #f8fafc; border: 1px solid #edf2f7; padding: 10px; border-radius: 6px; }
+        .grid-item.full { grid-column: span 2; }
+        .item-label { display: block; font-size: 10px; color: #718096; font-weight: 600; margin-bottom: 2px; }
+        .item-val { display: block; font-size: 13px; color: #1a202c; font-weight: bold; direction: ltr; text-align: right; }
+        .item-val.rtl { direction: rtl; }
     </style>
 </head>
 <body>
 
     <div class="header">
-        <h1><span class="status-dot"></span> لوحة تتبع الزوار والمدخلات اللحظية</h1>
-        <span style="font-size: 12px; color: #94a3b8;">تحديث مباشر (WebSockets)</span>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <h3>الزوار المتواجدون الآن</h3>
-            <p id="onlineUsers">0</p>
-        </div>
-        <div class="stat-card">
-            <h3>إجمالي عمليات الاستعلام</h3>
-            <p id="totalRequests">0</p>
+        <h1><span class="status-dot"></span> صندوق وارد الزوار والمدخلات</h1>
+        <div class="stats-summary">
+            <span>النشطون الآن: <strong id="onlineCount">0</strong></span>
+            <span>إجمالي الاستعلامات: <strong id="totalCount">0</strong></span>
         </div>
     </div>
 
-    <div class="table-container">
-        <h2>سجل مدخلات الزوار والنتائج الظاهرة لهم</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>الوقت</th>
-                    <th>توكين الزائر (تتبع ثابت)</th>
-                    <th>الرقم المكتوب</th>
-                    <th>الحالة</th>
-                    <th>التفاصيل المرجعة</th>
-                </tr>
-            </thead>
-            <tbody id="logsTableBody">
-                <tr><td colspan="5" style="text-align: center; color: #64748b;">في انتظار دخول الزوار...</td></tr>
-            </tbody>
-        </table>
+    <div class="inbox-container">
+        <div class="visitors-sidebar">
+            <div class="sidebar-title">قائمة الزوار المسجلين</div>
+            <div id="visitorsList">
+                <div style="padding: 20px; text-align: center; color: #64748b; font-size: 12px;">في انتظار دخول الزوار...</div>
+            </div>
+        </div>
+
+        <div class="details-content" id="detailsContent">
+            <div class="empty-state" id="emptyState">
+                <span style="font-size: 40px;">📥</span>
+                <span>اختر زائراً من القائمة اليمنى لعرض سجل مدخلاته والنتائج</span>
+            </div>
+
+            <div id="selectedVisitorDetails" style="display: none;">
+                <div class="visitor-header-details">
+                    <div>
+                        <span style="font-size: 12px; color: #94a3b8;">معرّف الزائر (Token):</span>
+                        <div id="activeVisitorToken" style="font-size: 18px; font-weight: bold; color: #38bdf8; font-family: monospace;">-</div>
+                    </div>
+                    <span id="activeVisitorStatus" style="font-size: 12px; padding: 4px 10px; border-radius: 20px; background: #065f46; color: #34d399;">نشط الآن</span>
+                </div>
+
+                <div class="logs-timeline" id="logsTimeline">
+                    </div>
+            </div>
+        </div>
     </div>
 
-    <div id="jsonModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 style="margin-top: 0; color: #38bdf8;">النتيجة الظاهرة للزائر:</h3>
-            <pre id="jsonViewer" style="white-space: pre-wrap; word-break: break-all;"></pre>
-            <button onclick="closeModal()" class="btn-view" style="width: 100%; margin-top: 15px; padding: 10px;">إغلاق</button>
+    <div class="modal-overlay" id="resultModal" onclick="closeModalOnOuterClick(event)">
+        <div class="modal-card">
+            <button class="modal-close-btn" onclick="closeModal()">✕</button>
+            <div id="modalCardBody">
+                </div>
         </div>
     </div>
 
     <script>
         const socket = io();
+        let selectedToken = null;
+        let globalLogs = [];
 
         socket.on('dashboard_update', (data) => {
-            document.getElementById('onlineUsers').innerText = data.onlineUsersCount;
-            document.getElementById('totalRequests').innerText = data.totalRequests;
+            document.getElementById('onlineCount').innerText = data.onlineUsersCount;
+            document.getElementById('totalCount').innerText = data.totalRequests;
 
-            const tbody = document.getElementById('logsTableBody');
-            tbody.innerHTML = '';
+            globalLogs = data.visitorLogs || [];
+            
+            // تجميع السجلات حسب كل زائر (Token)
+            const visitorsMap = new Map();
+            
+            globalLogs.forEach(log => {
+                const token = log.token || 'GUEST-UNKNOWN';
+                if (!visitorsMap.has(token)) {
+                    visitorsMap.set(token, {
+                        token: token,
+                        lastTime: log.time,
+                        logs: []
+                    });
+                }
+                visitorsMap.get(token).logs.push(log);
+            });
 
-            if (data.visitorLogs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b;">لا توجد عمليات بحث حتى الآن</td></tr>';
+            renderVisitorsList(visitorsMap);
+
+            // إعادة رسم سجلات الزائر المحدد إذا كان مفتوحاً
+            if (selectedToken && visitorsMap.has(selectedToken)) {
+                renderVisitorLogs(visitorsMap.get(selectedToken).logs);
+            }
+        });
+
+        function renderVisitorsList(visitorsMap) {
+            const listContainer = document.getElementById('visitorsList');
+            listContainer.innerHTML = '';
+
+            if (visitorsMap.size === 0) {
+                listContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #64748b; font-size: 12px;">لا يوجد زوار حالياً</div>';
                 return;
             }
 
-            data.visitorLogs.forEach(log => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${log.time}</td>
-                    <td><span class="token-badge">${log.token}</span></td>
-                    <td><b>${log.input}</b></td>
-                    <td class="${log.status === 'نجاح' ? 'status-success' : 'status-fail'}">${log.status}</td>
-                    <td><button class="btn-view" onclick='showJson(${JSON.stringify(log.resultData)})'>عرض النتيجة</button></td>
-                `;
-                tbody.appendChild(tr);
-            });
-        });
+            visitorsMap.forEach((data, token) => {
+                const item = document.createElement('div');
+                item.className = `visitor-item ${selectedToken === token ? 'active' : ''}`;
+                
+                // إضافة تأثير اللون عند دخول تسجيل جديد
+                item.onclick = () => selectVisitor(token, data.logs);
 
-        function showJson(data) {
-            document.getElementById('jsonViewer').innerText = JSON.stringify(data, null, 2);
-            document.getElementById('jsonModal').style.display = 'flex';
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="visitor-token">${token}</span>
+                        <span class="badge-count">${data.logs.length} مدخلات</span>
+                    </div>
+                    <div class="visitor-meta">
+                        <span>آخر نشاط: ${data.lastTime}</span>
+                        <span style="color: #4ade80;">● متصل</span>
+                    </div>
+                `;
+                listContainer.appendChild(item);
+            });
+        }
+
+        function selectVisitor(token, logs) {
+            selectedToken = token;
+            
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('selectedVisitorDetails').style.display = 'block';
+            document.getElementById('activeVisitorToken').innerText = token;
+
+            // تحديث محدد القائمة
+            document.querySelectorAll('.visitor-item').forEach(el => el.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+
+            renderVisitorLogs(logs);
+        }
+
+        function renderVisitorLogs(logs) {
+            const timeline = document.getElementById('logsTimeline');
+            timeline.innerHTML = '';
+
+            logs.forEach(log => {
+                const card = document.createElement('div');
+                card.className = 'log-card';
+                card.innerHTML = `
+                    <div class="log-info">
+                        <span class="log-input">الرقم المكتوب: ${log.input}</span>
+                        <span class="log-time">الوقت: ${log.time} | الحالة: <strong style="color:${log.status === 'نجاح' ? '#4ade80' : '#f87171'}">${log.status}</strong></span>
+                    </div>
+                    <button class="btn-view-result" onclick='openResultModal(${JSON.stringify(log.resultData)})'>عرض النتيجة المنسقة</button>
+                `;
+                timeline.appendChild(card);
+            });
+        }
+
+        // دالة التفتيش لاستخراج بيانات المركبة من النتيجة
+        function findVehicleData(node) {
+            if (!node) return null;
+            if (typeof node === 'string') { try { node = JSON.parse(node); } catch(e) { return null; } }
+            if (typeof node !== 'object' || node === null) return null;
+
+            if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) return node;
+            if (node.request && typeof node.request === 'object') return findVehicleData(node.request);
+
+            if (Array.isArray(node)) {
+                for (let item of node) {
+                    let res = findVehicleData(item);
+                    if (res) return res;
+                }
+            } else {
+                for (let k in node) {
+                    if (Object.prototype.hasOwnProperty.call(node, k)) {
+                        if (k === 'servicePrice') continue;
+                        let res = findVehicleData(node[k]);
+                        if (res) return res;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function openResultModal(resultData) {
+            const modalBody = document.getElementById('modalCardBody');
+            const veh = findVehicleData(resultData);
+
+            if (veh) {
+                function cleanVal(v) {
+                    if (v === null || v === undefined) return '-';
+                    const str = String(v).trim();
+                    return (str === '0000' || str === '0' || str === 'null' || str === '') ? '-' : str;
+                }
+
+                const maker = cleanVal(veh.vehicleMaker);
+                const model = cleanVal(veh.vehicleModel);
+                const year = cleanVal(veh.modelYear);
+                const seq = cleanVal(veh.sequenceNumber);
+                const vin = cleanVal(veh.vin);
+                const customId = cleanVal(veh.customId);
+                const expiryDate = cleanVal(veh.expiryDate);
+                const requestId = cleanVal(veh.id);
+                const source = cleanVal(veh.source);
+                
+                const fallbackChar = maker !== '-' ? maker.charAt(0) : '🚗';
+
+                let plateStr = cleanVal(veh.plateDesc);
+                if (plateStr === '-') {
+                    const l1 = cleanVal(veh.letterOne);
+                    const l2 = cleanVal(veh.letterTwo);
+                    const l3 = cleanVal(veh.letterThree);
+                    const pNum = cleanVal(veh.plateNumber);
+                    if (l1 !== '-' || l2 !== '-' || l3 !== '-' || pNum !== '-') {
+                        plateStr = `${l1 !== '-' ? l1 : ''} ${l2 !== '-' ? l2 : ''} ${l3 !== '-' ? l3 : ''} ${pNum !== '-' ? pNum : ''}`.trim();
+                    }
+                }
+
+                const title = (maker !== '-' || model !== '-') ? `${maker !== '-' ? maker : ''} ${model !== '-' ? model : ''}`.trim() : 'تفاصيل المركبة';
+
+                modalBody.innerHTML = `
+                    <div class="vehicle-card">
+                        <div class="vehicle-header">
+                            <div class="header-title-box">
+                                <div class="maker-logo-container">
+                                    <span class="logo-fallback">${fallbackChar}</span>
+                                </div>
+                                <h3>${title}</h3>
+                            </div>
+                            ${year !== '-' ? `<span style="background:rgba(255,255,255,0.2); font-size:11px; padding:3px 8px; border-radius:12px;">سنة الصنع: ${year}</span>` : ''}
+                        </div>
+                        <div class="vehicle-grid">
+                            <div class="grid-item"><span class="item-label">الشركة المصنعة</span><span class="item-val rtl">${maker}</span></div>
+                            <div class="grid-item"><span class="item-label">موديل المركبة</span><span class="item-val rtl">${model}</span></div>
+                            <div class="grid-item"><span class="item-label">الرقم التسلسلي</span><span class="item-val">${seq}</span></div>
+                            <div class="grid-item"><span class="item-label">رقم اللوحة</span><span class="item-val rtl">${plateStr}</span></div>
+                            <div class="grid-item full"><span class="item-label">رقم الهيكل (VIN)</span><span class="item-val">${vin}</span></div>
+                            <div class="grid-item"><span class="item-label">الرقم الجمركي</span><span class="item-val">${customId}</span></div>
+                            <div class="grid-item"><span class="item-label">تاريخ الانتهاء</span><span class="item-val rtl">${expiryDate}</span></div>
+                            <div class="grid-item"><span class="item-label">رقم الطلب</span><span class="item-val">${requestId}</span></div>
+                            <div class="grid-item"><span class="item-label">المصدر</span><span class="item-val rtl">${source}</span></div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                modalBody.innerHTML = `
+                    <div style="padding: 25px; text-align: center;">
+                        <h4 style="color:#e53e3e; margin-top:0;">لم تتوفر بطاقة مركبة</h4>
+                        <pre style="text-align:left; background:#f7fafc; padding:10px; border-radius:6px; font-size:11px; overflow-x:auto;">${JSON.stringify(resultData, null, 2)}</pre>
+                    </div>
+                `;
+            }
+
+            document.getElementById('resultModal').style.display = 'flex';
         }
 
         function closeModal() {
-            document.getElementById('jsonModal').style.display = 'none';
+            document.getElementById('resultModal').style.display = 'none';
+        }
+
+        // إغلاق النافذة عند النقر خارج صندوق النتيجة
+        function closeModalOnOuterClick(event) {
+            if (event.target.id === 'resultModal') {
+                closeModal();
+            }
         }
     </script>
 </body>

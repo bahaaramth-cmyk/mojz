@@ -188,11 +188,20 @@
                     const resData = await response.json();
                     captchaModal.classList.add('hidden');
 
-                    if (resData.success) {
-                        // تمرير كائن البيانات القادم (سواء كان يحتوي على "createRequest Success" أو data)
-                        renderVehicleCard(resData.data || resData);
+                    console.log('Received Response:', resData);
+
+                    // استخراج البيانات بغض النظر عن طريقة التغليف في السيرفر الوسيط
+                    const payload = resData.data || resData;
+
+                    // التأكد من نجاح العثور على كائن المركبة
+                    const reqObj = extractRequestObject(payload);
+
+                    if (reqObj) {
+                        renderVehicleCard(reqObj);
+                    } else if (resData.message) {
+                        alert('خطأ: ' + resData.message);
                     } else {
-                        alert('خطأ: ' + (resData.message || 'فشل جلب التقرير، يرجى المحاولة مرة أخرى.'));
+                        alert('تعذر استخراج بيانات المركبة، يرجى إعادة المحاولة.');
                     }
                 } catch (err) {
                     alert('حدث خطأ أثناء الاتصال بالسيرفر الوسيط');
@@ -202,7 +211,7 @@
                 }
             });
 
-            // دالة تفكيك الهيكل واستخراج كائن request بغض النظر عن الغلاف الخارجية
+            // دالة تفكيك الهيكل واستخراج كائن request بغض النظر عن طريقة تغليفه
             function extractRequestObject(data) {
                 if (!data) return null;
 
@@ -225,18 +234,10 @@
                 return null;
             }
 
-            // دالة رسم بطاقة تفاصيل المركبة
-            function renderVehicleCard(apiData) {
-                if (!apiData) return;
+            // دالة رسم بطاقة تفاصيل المركبة مباشرة من الكائن المجهّز
+            function renderVehicleCard(req) {
+                if (!req) return;
 
-                const req = extractRequestObject(apiData);
-
-                if (!req) {
-                    console.error('لم يتم العثور على بيانات المركبة في الاستجابة:', apiData);
-                    return;
-                }
-
-                // قراءة قيم الحقول المحددة مباشرة
                 const maker = req.vehicleMaker || 'غير محدد';
                 const model = req.vehicleModel || '';
                 const year = req.modelYear || 'غير محدد';

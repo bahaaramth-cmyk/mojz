@@ -90,7 +90,7 @@ app.get('/api/image-proxy', async (req, res) => {
     }
 });
 
-// استقبال البحث
+// استقبال طلبات الاستعلام
 app.post('/api/proxy-search', async (req, res) => {
     const { phoneNumber, captchaCode, sessionCookie, captchaUuid, visitorToken } = req.body;
     const targetOrigin = 'https://mojaz.com.sa';
@@ -131,6 +131,7 @@ app.post('/api/proxy-search', async (req, res) => {
 
             return res.json({ requireCaptcha: true, captchaImage: base64Image, sessionCookie: finalSessionCookie, captchaUuid: extractedUuid });
         } catch (err) {
+            console.error("=== CAPTCHA FETCH ERROR ===", err.message);
             return res.status(500).json({ success: false, message: 'Failed to fetch captcha' });
         }
     }
@@ -144,7 +145,12 @@ app.post('/api/proxy-search', async (req, res) => {
         };
 
         const createRes = await axios.post(CONFIG.createRequestUrl, mergedPayload, {
-            headers: { ...baseHeaders, 'Content-Type': 'application/json', 'Cookie': sessionCookie || '' },
+            headers: { 
+                ...baseHeaders, 
+                'Content-Type': 'application/json', 
+                'Cookie': sessionCookie || '',
+                ...(captchaUuid ? { 'captcha-uuid': captchaUuid, 'x-captcha-uuid': captchaUuid } : {})
+            },
             httpsAgent
         });
 
@@ -164,17 +170,31 @@ app.post('/api/proxy-search', async (req, res) => {
 
     } catch (err) {
         totalRequestsCount++;
+        
+        // طباعة تفاصيل الخطأ المباشرة في لوغ Render
+        const status = err.response ? err.response.status : 500;
+        const errData = err.response ? err.response.data : err.message;
+        
+        console.error("=== MOJAZ API ERROR ===");
+        console.error("Status:", status);
+        console.error("Error Response Data:", JSON.stringify(errData, null, 2));
+        console.error("=======================");
+
         visitorLogs.unshift({
             id: Date.now(),
             token: visitorToken || 'GUEST-UNKNOWN',
             input: phoneNumber,
             time: new Date().toLocaleTimeString('ar-SA'),
-            status: 'فشل / كابتشا خاطئة',
-            resultData: err.response ? err.response.data : err.message
+            status: `فشل (${status})`,
+            resultData: errData
         });
         broadcastStats();
 
-        return res.status(500).json({ success: false, message: 'فشل في جلب البيانات' });
+        return res.status(status).json({ 
+            success: false, 
+            message: (typeof errData === 'object' && errData.message) ? errData.message : 'فشل في جلب البيانات من الموقع الأصلي',
+            errorDetails: errData 
+        });
     }
 });
 

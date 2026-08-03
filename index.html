@@ -128,7 +128,6 @@
                     closeCaptchaModal();
                     statusMsg.style.display = 'none';
                     
-                    // استخراج وعرض البيانات
                     renderVehicleCard(result);
                     submitBtn.disabled = false;
                 }
@@ -169,18 +168,33 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة حاسمة للوصول المباشر لكائن request بغض النظر عن مستويات التغليف
+        // دالة الوصول لمحتوى request الداخلي بدقة
         function extractRequestObject(result) {
             if (!result) return {};
 
-            let target = result.data !== undefined ? result.data : result;
+            let target = result;
 
-            // إذا كان التغليف يحتوي على مصفوفة
+            // 1. فحص المفتاح "createRequest Success"
+            if (target["createRequest Success"]) {
+                target = target["createRequest Success"];
+            }
+
+            // 2. فحص ما إذا كان هناك غلاف data
+            if (target && target.data !== undefined) {
+                target = target.data;
+            }
+
+            // 3. فحص المفتاح "createRequest Success" مرة أخرى إن كان داخل data
+            if (target && target["createRequest Success"]) {
+                target = target["createRequest Success"];
+            }
+
+            // 4. إذا كانت مصفوفة
             if (Array.isArray(target) && target.length > 0) {
                 target = target[0];
             }
 
-            // الوصول لكائن request المباشر
+            // 5. استخراج كائن request
             if (target && target.request) {
                 return target.request;
             }
@@ -191,10 +205,10 @@
         function renderVehicleCard(apiResult) {
             const resultContainer = document.getElementById('resultContainer');
             
-            // استخراج كائن request
+            // استخراج كائن request المباشر
             const req = extractRequestObject(apiResult);
 
-            // دالة قراءة القيم النظيفة بدون فرض قيم افتراضية
+            // دالة تنظيف وتجهيز النص
             function getVal(v) {
                 if (v === null || v === undefined) return '';
                 const str = String(v).trim();
@@ -202,7 +216,6 @@
                 return str;
             }
 
-            // ربط المتغيرات بحقول الكائن request المباشرة
             const maker = getVal(req.vehicleMaker);
             const model = getVal(req.vehicleModel);
             const year = getVal(req.modelYear);

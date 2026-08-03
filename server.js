@@ -43,9 +43,9 @@ app.get('/api/settings', (req, res) => res.json(getSettings()));
 app.post('/api/settings', (req, res) => {
     try {
         fs.writeFileSync(CONFIG_PATH, JSON.stringify(req.body, null, 2));
-        res.json({ success: true, message: 'تم حفظ الإعدادات بنجاح' });
+        res.json({ success: true, message: 'Settings saved successfully' });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'فشل حفظ الإعدادات' });
+        res.status(500).json({ success: false, message: 'Failed to save settings' });
     }
 });
 
@@ -55,7 +55,7 @@ app.post('/api/proxy-search', async (req, res) => {
     const dynamicDeviceId = generateDynamicDeviceId();
 
     if (!config.captchaImgUrl) {
-        return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
+        return res.status(400).json({ success: false, message: 'Please set captchaImgUrl in dashboard first' });
     }
 
     let targetOrigin = 'https://mojaz.com.sa';
@@ -63,7 +63,7 @@ app.post('/api/proxy-search', async (req, res) => {
         const parsedUrl = new URL(config.captchaImgUrl.trim());
         targetOrigin = parsedUrl.origin;
     } catch (e) {
-        console.error('خطأ في استخراج Origin من الرابط');
+        console.error('Error parsing target origin');
     }
 
     let currentCookies = sessionCookie || '';
@@ -92,7 +92,7 @@ app.post('/api/proxy-search', async (req, res) => {
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] جلب الكابتشا وتأسيس الجلسة الموحدة: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] Fetching captcha: ${fullCaptchaUrl} ---`);
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
                 headers: baseHeaders,
@@ -137,11 +137,11 @@ app.post('/api/proxy-search', async (req, res) => {
         } catch (err) {
             const errStatusCode = err.response ? err.response.status : 'NO_RESPONSE';
             const errDetails = err.response ? err.response.data : err.message;
-            console.error(`!!! خطأ جلب الكابتشا (${errStatusCode}):`, errDetails);
+            console.error(`!!! Captcha Fetch Error (${errStatusCode}):`, errDetails);
 
             return res.status(500).json({ 
                 success: false, 
-                message: `فشل جلب الكابتشا من السيرفر الأصلي (رمز: ${errStatusCode})`,
+                message: `Failed to fetch captcha (Code: ${errStatusCode})`,
                 errorDetails: errDetails
             });
         }
@@ -165,14 +165,3 @@ app.post('/api/proxy-search', async (req, res) => {
                     [phoneFieldName]: phoneNumber
                 }
             ],
-            ...(config.extraPayload || {})
-        };
-
-        console.log(`--- [2] إرسال createRequest بنفس الجلسة exact ---`, JSON.stringify(mergedPayload));
-        const createRes = await axios.post(
-            config.createRequestUrl.trim(), 
-            mergedPayload, 
-            { headers: requestHeaders, httpsAgent: httpsAgent }
-        );
-
-        console.log('استجابة createRequest النا

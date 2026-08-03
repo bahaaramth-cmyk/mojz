@@ -188,11 +188,9 @@
                     const resData = await response.json();
                     captchaModal.classList.add('hidden');
 
-                    // طباعة استجابة السيرفر في الـ Console لمعاينتها إن لزم
-                    console.log('API Response:', resData);
-
                     if (resData.success) {
-                        renderVehicleCard(resData);
+                        // تفكيك البيانات المرجعة بناءً على الكائن المرفق بالضبط
+                        renderVehicleCard(resData.data);
                     } else {
                         alert('خطأ: ' + (resData.message || 'فشل جلب التقرير، يرجى المحاولة مرة أخرى.'));
                     }
@@ -204,55 +202,31 @@
                 }
             });
 
-            // دالة الفحص العميق في كائن الـ JSON للوصول لأي مفتاح يطابق الأسماء المحددة
-            function deepSearch(obj, targetKeys) {
-                if (!obj || typeof obj !== 'object') return null;
+            // دالة استخراج بيانات المركبة بناءً على الهيكل الصحيح للـ JSON
+            function renderVehicleCard(apiData) {
+                if (!apiData) return;
 
-                if (Array.isArray(obj)) {
-                    for (let item of obj) {
-                        let result = deepSearch(item, targetKeys);
-                        if (result !== null) return result;
-                    }
-                    return null;
+                // الوصول لمسار الكائن request
+                let req = null;
+
+                if (Array.isArray(apiData) && apiData.length > 0) {
+                    req = apiData[0].request || apiData[0];
+                } else if (apiData.request) {
+                    req = apiData.request;
+                } else {
+                    req = apiData;
                 }
 
-                // فحص المفتايح المباشرة للكائن الحالي
-                for (let key in obj) {
-                    const lowerKey = key.toLowerCase();
-                    for (let target of targetKeys) {
-                        if (lowerKey === target.toLowerCase()) {
-                            let val = obj[key];
-                            if (val !== null && val !== undefined && val !== '' && val !== 'null') {
-                                return val;
-                            }
-                        }
-                    }
-                }
+                // استخراج المتغيرات الدقيقة
+                const maker = req.vehicleMaker || 'غير محدد';
+                const model = req.vehicleModel || '';
+                const year = req.modelYear || 'غير محدد';
+                const seq = req.sequenceNumber || '-';
+                const vin = req.vin || '-';
+                const customId = req.customId || '-';
+                const plateDesc = req.plateDesc || '';
 
-                // فحص الكائنات المضمنة بالداخل
-                for (let key in obj) {
-                    if (typeof obj[key] === 'object' && obj[key] !== null) {
-                        let result = deepSearch(obj[key], targetKeys);
-                        if (result !== null) return result;
-                    }
-                }
-
-                return null;
-            }
-
-            // دالة رسم بطاقة تفاصيل المركبة المطابقة لموقع موجز
-            function renderVehicleCard(responseObj) {
-                if (!responseObj) return;
-
-                // البحث عن الحقول الشائعة في Mojaz API
-                const maker = deepSearch(responseObj, ['vehicleMaker', 'maker', 'makerName', 'vehicleMakerAr', 'brand']) || 'تويوتا';
-                const model = deepSearch(responseObj, ['vehicleModel', 'model', 'modelName', 'vehicleModelAr']) || 'في اكس ار';
-                const year = deepSearch(responseObj, ['modelYear', 'year', 'manufactureYear', 'productionYear']) || '1997';
-                const vin = deepSearch(responseObj, ['vin', 'chassisNumber', 'chassisNo']) || sequenceInput.value.trim();
-                const seq = deepSearch(responseObj, ['sequenceNumber', 'seqNo', 'sequenceNo', 'serialNumber']) || sequenceInput.value.trim();
-                const customId = deepSearch(responseObj, ['customId', 'customCardNumber', 'customsNumber', 'customCardNo']) || '-';
-
-                const makerFirstChar = maker.trim().charAt(0) || 'ت';
+                const makerFirstChar = maker !== 'غير محدد' ? maker.trim().charAt(0) : 'م';
 
                 vehicleCardContainer.innerHTML = `
                     <div class="bg-gradient-to-br from-teal-50/60 to-white p-5 rounded-2xl border border-teal-100 space-y-4 shadow-sm text-right" dir="rtl">
@@ -260,7 +234,7 @@
                             <div>
                                 <span class="bg-[#008B7D] text-white text-[11px] font-bold px-2.5 py-1 rounded-md inline-block mb-1">مركبة مسجلة</span>
                                 <h3 class="text-xl font-black text-gray-900">${maker} ${model}</h3>
-                                <p class="text-xs text-gray-500 font-semibold mt-0.5">سنة الصنع: ${year}</p>
+                                <p class="text-xs text-gray-500 font-semibold mt-0.5">سنة الصنع: ${year} ${plateDesc ? `| اللوحة: ${plateDesc}` : ''}</p>
                             </div>
                             <div class="w-14 h-14 bg-white rounded-xl shadow-sm border border-gray-200 flex items-center justify-center p-2">
                                 <span class="text-2xl font-black text-[#005A52]">${makerFirstChar}</span>

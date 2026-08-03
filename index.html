@@ -168,47 +168,71 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة بحث شجرية تضمن العثور على كائن المركبة بغض النظر عن طريقة التغليف
-        function findVehicleRequest(obj) {
-            if (!obj || typeof obj !== 'object') return null;
+        // دالة التفتيش العميقة الشاملة التي تعالج النصوص والكائنات والمصفوفات
+        function extractRequestObject(input) {
+            if (!input) return {};
 
-            // إذا كان هذا الكائن يحتوي على الحقول المطلوبة مباشرة
-            if (obj.vehicleMaker || obj.sequenceNumber || obj.vin) {
-                return obj;
-            }
-
-            // إذا كانت البيانات بداخل الخاصية request
-            if (obj.request && typeof obj.request === 'object') {
-                const found = findVehicleRequest(obj.request);
-                if (found) return found;
-            }
-
-            // إذا كانت البيانات عبارة عن مصفوفة Array
-            if (Array.isArray(obj)) {
-                for (let item of obj) {
-                    const found = findVehicleRequest(item);
-                    if (found) return found;
+            // 1. تحويل النصوص البرمجية إلى كائنات تلقائياً
+            if (typeof input === 'string') {
+                try {
+                    input = JSON.parse(input);
+                } catch (e) {
+                    return {};
                 }
-            } else {
-                // البحث في جميع مفاتيح الكائن
-                for (let key in obj) {
-                    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                        const found = findVehicleRequest(obj[key]);
-                        if (found) return found;
+            }
+
+            let foundObj = null;
+
+            function traverse(node) {
+                if (!node || foundObj) return;
+
+                // تحويل أي نص مضمن داخل الكائن إلى JSON
+                if (typeof node === 'string') {
+                    try { node = JSON.parse(node); } catch(e) {}
+                }
+
+                if (typeof node !== 'object' || node === null) return;
+
+                // إذا كان هذا الكائن يحتوي على vehicleMaker أو sequenceNumber أو id الخاف بـ request
+                if (node.vehicleMaker !== undefined || node.sequenceNumber !== undefined) {
+                    foundObj = node;
+                    return;
+                }
+
+                // إذا كان يحتوي على خاصية request
+                if (node.request && typeof node.request === 'object') {
+                    traverse(node.request);
+                    if (foundObj) return;
+                }
+
+                // إذا كان مصفوفة
+                if (Array.isArray(node)) {
+                    for (let item of node) {
+                        traverse(item);
+                        if (foundObj) return;
+                    }
+                } else {
+                    // فحص كافة مفاتيح الكائن
+                    for (let key in node) {
+                        if (Object.prototype.hasOwnProperty.call(node, key)) {
+                            traverse(node[key]);
+                            if (foundObj) return;
+                        }
                     }
                 }
             }
 
-            return null;
+            traverse(input);
+            return foundObj || {};
         }
 
         function renderVehicleCard(apiResult) {
             const resultContainer = document.getElementById('resultContainer');
             
-            // العثور المباشر على كائن request
-            const req = findVehicleRequest(apiResult) || {};
+            // استخراج كائن request المباشر
+            const req = extractRequestObject(apiResult);
 
-            // دالة تنظيف النص وإرجاعه كما هو أو ترك المجال فارغاً
+            // دالة تنظيف النص وإرجاعه كما هو
             function getVal(v) {
                 if (v === null || v === undefined) return '';
                 const str = String(v).trim();
@@ -216,7 +240,7 @@
                 return str;
             }
 
-            // ربط المتغيرات بالأسماء الحقيقية المرجعة من موجز
+            // ربط الحقول بالمتغيرات القادمة من request
             const maker = getVal(req.vehicleMaker);
             const model = getVal(req.vehicleModel);
             const year = getVal(req.modelYear);
@@ -227,7 +251,7 @@
             const requestId = getVal(req.id);
             const source = getVal(req.source);
             
-            // تركيبة اللوحة
+            // تركيب رقم اللوحة
             let plateStr = getVal(req.plateDesc);
             if (!plateStr) {
                 const l1 = getVal(req.letterOne);

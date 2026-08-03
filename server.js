@@ -165,3 +165,47 @@ app.post('/api/proxy-search', async (req, res) => {
                     [phoneFieldName]: phoneNumber
                 }
             ],
+            ...(config.extraPayload || {})
+        };
+
+        console.log(`--- [2] Sending createRequest ---`, JSON.stringify(mergedPayload));
+        const createRes = await axios.post(
+            config.createRequestUrl.trim(), 
+            mergedPayload, 
+            { headers: requestHeaders, httpsAgent: httpsAgent }
+        );
+
+        console.log('createRequest Success:', createRes.data);
+
+        const reportPayload = {
+            ...mergedPayload,
+            ...(createRes.data && typeof createRes.data === 'object' ? createRes.data : {})
+        };
+
+        console.log('--- [3] Sending getReportPrice ---');
+        const reportRes = await axios.post(
+            config.getReportUrl.trim(), 
+            reportPayload, 
+            { headers: requestHeaders, httpsAgent: httpsAgent }
+        );
+
+        return res.json({ success: true, data: reportRes.data });
+
+    } catch (err) {
+        const status = err.response ? err.response.status : 500;
+        const errData = err.response ? err.response.data : err.message;
+        console.error(`--- Request Failed (${status}) ---`, errData);
+
+        return res.status(status).json({
+            success: false,
+            message: `Execution failed from target server (Code: ${status})`,
+            errorDetails: errData
+        });
+    }
+});
+
+app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -88,42 +88,21 @@ app.post('/api/proxy-search', async (req, res) => {
 
     if (!captchaCode) {
         try {
-            if (!currentCookies) {
-                console.log(`--- [0] تهيئة الجلسة من الصفحة الرئيسية: ${targetOrigin}/mojaz/ ---`);
-                try {
-                    const initRes = await axios.get(`${targetOrigin}/mojaz/`, {
-                        headers: baseHeaders,
-                        httpsAgent: httpsAgent,
-                        timeout: 8000
-                    });
-                    const initSetCookie = initRes.headers['set-cookie'];
-                    if (initSetCookie) {
-                        currentCookies = initSetCookie.map(c => c.split(';')[0]).join('; ');
-                    }
-                } catch (initErr) {
-                    console.log('تنبيه أثناء تهيئة الجلسة الأولية');
-                }
-            }
-
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
             const fullCaptchaUrl = `${cleanBaseUrl}?${currentTimestamp}`;
 
-            console.log(`--- [1] جلب الكابتشا من: ${fullCaptchaUrl} ---`);
+            console.log(`--- [1] جلب الكابتشا وتأسيس الجلسة الموحدة: ${fullCaptchaUrl} ---`);
 
             const imgRes = await axios.get(fullCaptchaUrl, { 
-                headers: {
-                    ...baseHeaders,
-                    ...(currentCookies ? { 'Cookie': currentCookies } : {})
-                },
+                headers: baseHeaders,
                 httpsAgent: httpsAgent,
                 timeout: 10000 
             });
 
             const setCookieHeader = imgRes.headers['set-cookie'];
             if (setCookieHeader) {
-                const newCookiesFormatted = setCookieHeader.map(c => c.split(';')[0]).join('; ');
-                currentCookies = currentCookies ? `${currentCookies}; ${newCookiesFormatted}` : newCookiesFormatted;
+                currentCookies = setCookieHeader.map(c => c.split(';')[0]).join('; ');
             }
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
@@ -139,4 +118,61 @@ app.post('/api/proxy-search', async (req, res) => {
                     const parsed = JSON.parse(imgRes.data);
                     base64Image = parsed.imageB64 || parsed.captcha || parsed.image || '';
                 } catch (e) {
-                    base64Image = imgRes
+                    base64Image = imgRes.data;
+                }
+            }
+
+            if (base64Image && !base64Image.startsWith('data:image')) {
+                base64Image = `data:image/png;base64,${base64Image}`;
+            }
+
+            return res.json({
+                success: false,
+                requireCaptcha: true,
+                captchaImage: base64Image,
+                sessionCookie: currentCookies,
+                captchaUuid: extractedUuid
+            });
+
+        } catch (err) {
+            const errStatusCode = err.response ? err.response.status : 'NO_RESPONSE';
+            const errDetails = err.response ? err.response.data : err.message;
+            console.error(`!!! خطأ جلب الكابتشا (${errStatusCode}):`, errDetails);
+
+            return res.status(500).json({ 
+                success: false, 
+                message: `فشل جلب الكابتشا من السيرفر الأصلي (رمز: ${errStatusCode})`,
+                errorDetails: errDetails
+            });
+        }
+    }
+
+    try {
+        const captchaFieldName = config.captchaField || 'jcaptcha';
+        const phoneFieldName = config.phoneField || 'sequenceNumber';
+
+        const requestHeaders = {
+            ...baseHeaders,
+            'Content-Type': 'application/json',
+            'Cookie': sessionCookie || '',
+            ...(captchaUuid ? { 'captcha-uuid': captchaUuid } : {})
+        };
+
+        const mergedPayload = {
+            [captchaFieldName]: captchaCode,
+            "vehicles": [
+                {
+                    [phoneFieldName]: phoneNumber
+                }
+            ],
+            ...(config.extraPayload || {})
+        };
+
+        console.log(`--- [2] إرسال createRequest بنفس الجلسة exact ---`, JSON.stringify(mergedPayload));
+        const createRes = await axios.post(
+            config.createRequestUrl.trim(), 
+            mergedPayload, 
+            { headers: requestHeaders, httpsAgent: httpsAgent }
+        );
+
+        console.log('استجابة createRequest النا

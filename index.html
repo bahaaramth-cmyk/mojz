@@ -41,8 +41,8 @@
         </div>
     </header>
 
-    <main class="flex-1 flex items-center justify-center p-4 my-6">
-        <div class="w-full max-w-lg bg-white rounded-2xl shadow-xl p-6 md:p-8 space-y-6 border border-gray-100">
+    <main class="flex-1 flex flex-col items-center justify-center p-4 my-6">
+        <div class="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 md:p-8 space-y-6 border border-gray-100">
             
             <div class="border-b border-gray-100 pb-4">
                 <h2 class="text-xl font-bold text-gray-900">ابحث عن تقرير مركبة</h2>
@@ -60,6 +60,8 @@
                     اطلب التقرير
                 </button>
             </form>
+
+            <div id="vehicleCardContainer" class="hidden pt-4 border-t border-gray-100"></div>
         </div>
     </main>
 
@@ -93,21 +95,6 @@
         </div>
     </div>
 
-    <div id="reportResultModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 text-right space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-gray-100 pb-3">
-                <h3 class="text-lg font-bold text-gray-900">بيانات التقرير المستخرجة 🎉</h3>
-                <button type="button" onclick="document.getElementById('reportResultModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 font-bold text-2xl">&times;</button>
-            </div>
-            <div class="flex-1 overflow-y-auto bg-slate-900 text-emerald-400 p-4 rounded-xl font-mono text-xs dir-ltr text-left">
-                <pre id="reportJsonOutput"></pre>
-            </div>
-            <button type="button" onclick="document.getElementById('reportResultModal').classList.add('hidden')" class="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition text-sm">
-                إغلاق
-            </button>
-        </div>
-    </div>
-
     <footer class="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
         جميع الحقوق محفوظة لموقع موجز © 2026
     </footer>
@@ -125,13 +112,11 @@
             const modalReloadBtn = document.getElementById('modalReloadCaptcha');
             const modalSubmitBtn = document.getElementById('modalSubmitBtn');
 
-            const reportResultModal = document.getElementById('reportResultModal');
-            const reportJsonOutput = document.getElementById('reportJsonOutput');
+            const vehicleCardContainer = document.getElementById('vehicleCardContainer');
 
             let currentSessionCookie = '';
             let currentCaptchaUuid = '';
 
-            // دالة جلب الكابتشا
             async function fetchCaptcha() {
                 modalCaptchaImg.src = '';
                 modalCaptchaImg.alt = 'جاري جلب الكابتشا...';
@@ -155,7 +140,6 @@
                 }
             }
 
-            // فتح النافذة المنبثقة للطلب
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const sequenceVal = sequenceInput.value.trim();
@@ -171,15 +155,12 @@
                 initBtn.innerText = 'اطلب التقرير';
             });
 
-            // تحديث الكابتشا
             modalReloadBtn.addEventListener('click', fetchCaptcha);
 
-            // إغلاق نافذة الكابتشا
             closeCaptchaModalBtn.addEventListener('click', () => {
                 captchaModal.classList.add('hidden');
             });
 
-            // تأكيد الطلب وإرسال البحث
             modalSubmitBtn.addEventListener('click', async () => {
                 const captchaCode = modalCaptchaInput.value.trim();
                 const sequenceVal = sequenceInput.value.trim();
@@ -190,7 +171,7 @@
                 }
 
                 modalSubmitBtn.disabled = true;
-                modalSubmitBtn.innerText = 'جاري الاستعلام...';
+                modalSubmitBtn.innerText = 'جاري البحث...';
 
                 try {
                     const response = await fetch('/api/proxy-search', {
@@ -208,8 +189,17 @@
                     captchaModal.classList.add('hidden');
 
                     if (resData.success) {
-                        reportJsonOutput.textContent = JSON.stringify(resData.data, null, 2);
-                        reportResultModal.classList.remove('hidden');
+                        // استخراج بيانات السيارة القادمة من الاستجابة
+                        let reqData = null;
+                        if (Array.isArray(resData.data) && resData.data.length > 0) {
+                            reqData = resData.data[0].request || resData.data[0];
+                        } else if (resData.data && resData.data.request) {
+                            reqData = resData.data.request;
+                        } else {
+                            reqData = resData.data;
+                        }
+
+                        renderVehicleCard(reqData);
                     } else {
                         alert('خطأ: ' + (resData.message || 'فشل جلب التقرير، يرجى المحاولة مرة أخرى.'));
                     }
@@ -220,6 +210,54 @@
                     modalSubmitBtn.innerText = 'تأكيد واستعلام';
                 }
             });
+
+            // دالة رسم بطاقة تفاصيل المركبة المطابقة لموجز
+            function renderVehicleCard(info) {
+                if (!info) return;
+
+                const maker = info.vehicleMaker || 'غير محدد';
+                const model = info.vehicleModel || 'غير محدد';
+                const year = info.modelYear || 'غير محدد';
+                const vin = info.vin || '-';
+                const seq = info.sequenceNumber || '-';
+                const customId = info.customId || '-';
+
+                vehicleCardContainer.innerHTML = `
+                    <div class="bg-gradient-to-br from-teal-50/50 to-white p-5 rounded-2xl border border-teal-100 space-y-4">
+                        <div class="flex justify-between items-center border-b border-teal-100 pb-3">
+                            <div>
+                                <span class="bg-[#008B7D] text-white text-[11px] font-bold px-2.5 py-1 rounded-md">مركبة مسجلة</span>
+                                <h3 class="text-xl font-black text-gray-900 mt-2">${maker} ${model}</h3>
+                                <p class="text-xs text-gray-500 font-semibold">سنة الصنع: ${year}</p>
+                            </div>
+                            <div class="w-14 h-14 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center p-2">
+                                <span class="text-2xl font-black text-[#005A52]">${maker.charAt(0)}</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                                <span class="text-gray-400 block mb-1">الرقم التسلسلي</span>
+                                <span class="font-bold text-gray-800 text-sm dir-ltr text-right block">${seq}</span>
+                            </div>
+                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                                <span class="text-gray-400 block mb-1">رقم الهيكل (VIN)</span>
+                                <span class="font-bold text-gray-800 text-sm dir-ltr text-right block">${vin}</span>
+                            </div>
+                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm md:col-span-2">
+                                <span class="text-gray-400 block mb-1">الرقم الجمركي</span>
+                                <span class="font-bold text-gray-800 text-sm dir-ltr text-right block">${customId}</span>
+                            </div>
+                        </div>
+
+                        <button class="w-full py-3 bg-[#008B7D] hover:bg-[#00766A] text-white font-bold text-sm rounded-xl transition shadow-md">
+                            عرض التقرير الشامل 📄
+                        </button>
+                    </div>
+                `;
+
+                vehicleCardContainer.classList.remove('hidden');
+            }
         });
     </script>
 </body>

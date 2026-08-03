@@ -41,6 +41,8 @@
         .item-label { display: block; font-size: 11px; color: #718096; font-weight: 600; margin-bottom: 4px; }
         .item-val { display: block; font-size: 14px; color: #1a202c; font-weight: bold; direction: ltr; text-align: right; min-height: 20px; }
         .item-val.rtl { direction: rtl; }
+
+        .debug-box { background: #1e293b; color: #f8fafc; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; overflow-x: auto; margin-top: 10px; text-align: left; direction: ltr; max-height: 200px; }
     </style>
 </head>
 <body>
@@ -105,6 +107,7 @@
 
         async function sendRequest(payload) {
             const statusMsg = document.getElementById('statusMsg');
+            const resultContainer = document.getElementById('resultContainer');
             const submitBtn = document.getElementById('submitBtn');
 
             try {
@@ -115,7 +118,6 @@
                 });
 
                 const result = await res.json();
-                console.log("استجابة السيرفر الكاملة:", result);
 
                 if (result.requireCaptcha) {
                     statusMsg.style.display = 'none';
@@ -128,14 +130,18 @@
                 else {
                     closeCaptchaModal();
                     
-                    const reqObj = findVehicleRequestObject(result);
-                    
+                    const reqObj = extractVehicleRequest(result);
+
                     if (reqObj) {
                         statusMsg.style.display = 'none';
                         renderVehicleCard(reqObj);
                     } else {
                         statusMsg.className = 'status-msg status-error';
-                        statusMsg.innerText = result.message || 'لم يتم العثور على بيانات المركبة في الاستجابة';
+                        const errText = result.message || 'لم يتم العثور على بيانات المركبة (تأكد من رمز الكابتشا)';
+                        statusMsg.innerHTML = `
+                            <div>${errText}</div>
+                            <div class="debug-box">${JSON.stringify(result, null, 2)}</div>
+                        `;
                         statusMsg.style.display = 'block';
                     }
                     submitBtn.disabled = false;
@@ -177,47 +183,39 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة التفتيش الدقيقة: تركز على الكائن الذي يحوي حقول المركبة الأساسية وتتجاهل المفاتيح الفارغة
-        function findVehicleRequestObject(node) {
-            if (!node) return null;
+        // دالة التفتيش المباشرة والبسيطة لاستخراج كائن المركبة
+        function extractVehicleRequest(data) {
+            if (!data) return null;
 
-            if (typeof node === 'string') {
-                try { node = JSON.parse(node); } catch (e) { return null; }
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch(e) { return null; }
             }
 
-            if (typeof node !== 'object' || node === null) return null;
-
-            // 1. إذا كان الكائن الحالي يحتوي مباشرة على خصائص المركبة
-            if (node.vehicleMaker || node.sequenceNumber || node.vin) {
-                return node;
-            }
-
-            // 2. إذا كان يحتوي على الخاصية request مباشرة
-            if (node.request && typeof node.request === 'object') {
-                const reqMatch = findVehicleRequestObject(node.request);
-                if (reqMatch) return reqMatch;
-            }
-
-            // 3. البحث في المصفوفات
-            if (Array.isArray(node)) {
-                for (let item of node) {
-                    const match = findVehicleRequestObject(item);
-                    if (match) return match;
+            if (Array.isArray(data)) {
+                for (let item of data) {
+                    let res = extractVehicleRequest(item);
+                    if (res) return res;
                 }
-            } else {
-                // 4. البحث في باقي الخصائص الكائنية
-                for (let key in node) {
-                    if (Object.prototype.hasOwnProperty.call(node, key)) {
-                        const match = findVehicleRequestObject(node[key]);
-                        if (match) return match;
+                return null;
+            }
+
+            if (typeof data === 'object' && data !== null) {
+                if (data.vehicleMaker || data.sequenceNumber || data.vin) return data;
+                if (data.request) return extractVehicleRequest(data.request);
+                if (data.data) return extractVehicleRequest(data.data);
+                if (data['createRequest Success']) return extractVehicleRequest(data['createRequest Success']);
+
+                for (let k in data) {
+                    if (Object.prototype.hasOwnProperty.call(data, k)) {
+                        let res = extractVehicleRequest(data[k]);
+                        if (res) return res;
                     }
                 }
             }
-
             return null;
         }
 
-        // دالة رسم بطاقة تفاصيل المركبة بالحقول المحددة
+        // دالة عرض بطاقة تفاصيل المركبة
         function renderVehicleCard(req) {
             const resultContainer = document.getElementById('resultContainer');
             req = req || {};
@@ -239,7 +237,6 @@
             const requestId = cleanVal(req.id);
             const source = cleanVal(req.source);
             
-            // تركيب رقم اللوحة
             let plateStr = cleanVal(req.plateDesc);
             if (!plateStr) {
                 const l1 = cleanVal(req.letterOne);

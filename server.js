@@ -1,7 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const { wrapper } = require('axios-cookie-jar-support');
-const { CookieJar } = require('tough-cookie');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
@@ -60,21 +58,15 @@ app.post('/api/proxy-search', async (req, res) => {
         return res.status(400).json({ success: false, message: 'يرجى ضبط رابط الكابتشا في لوحة التحكم أولاً' });
     }
 
-    // استخراج النطاق الحقيقي تلقائياً من الرابط المضبوط باللوحة
     let targetOrigin = 'https://mojaz.com.sa';
     try {
         const parsedUrl = new URL(config.captchaImgUrl.trim());
         targetOrigin = parsedUrl.origin;
     } catch (e) {
-        console.error('خطأ في استخراج النطاق من الرابط');
+        console.error('خطأ في استخراج Origin من الرابط');
     }
 
-    const jar = new CookieJar();
-    const client = wrapper(axios.create({ 
-        jar, 
-        withCredentials: true,
-        httpsAgent 
-    }));
+    let currentCookies = sessionCookie || '';
 
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
@@ -99,10 +91,22 @@ app.post('/api/proxy-search', async (req, res) => {
     // -------------------------------------------------------------
     if (!captchaCode) {
         try {
-            console.log(`--- [0] بدء تهيئة الجلسة من النطاق الحقيقي: ${targetOrigin}/mojaz/ ---`);
-            await client.get(`${targetOrigin}/mojaz/`, { headers: baseHeaders, timeout: 8000 }).catch(() => {
-                console.log('تنبيه: تم تجاوز فتح الصفحة الرئيسية، سيتم المحاولة المباشرة مع الكابتشا...');
-            });
+            if (!currentCookies) {
+                console.log(`--- [0] تهيئة الجلسة من الصفحة الرئيسية: ${targetOrigin}/mojaz/ ---`);
+                try {
+                    const initRes = await axios.get(`${targetOrigin}/mojaz/`, {
+                        headers: baseHeaders,
+                        httpsAgent: httpsAgent,
+                        timeout: 8000
+                    });
+                    const initSetCookie = initRes.headers['set-cookie'];
+                    if (initSetCookie) {
+                        currentCookies = initSetCookie.join('; ');
+                    }
+                } catch (initErr) {
+                    console.log('تنبيه أثناء تهيئة الجلسة الأولية');
+                }
+            }
 
             const currentTimestamp = Date.now().toString();
             const cleanBaseUrl = config.captchaImgUrl.trim().replace(/\?.*$/, '');
@@ -110,12 +114,19 @@ app.post('/api/proxy-search', async (req, res) => {
 
             console.log(`--- [1] جلب الكابتشا من: ${fullCaptchaUrl} ---`);
 
-            const imgRes = await client.get(fullCaptchaUrl, { 
-                headers: baseHeaders,
+            const imgRes = await axios.get(fullCaptchaUrl, { 
+                headers: {
+                    ...baseHeaders,
+                    ...(currentCookies ? { 'Cookie': currentCookies } : {})
+                },
+                httpsAgent: httpsAgent,
                 timeout: 10000 
             });
 
-            const cookieString = await jar.getCookieString(targetOrigin);
+            const setCookieHeader = imgRes.headers['set-cookie'];
+            if (setCookieHeader) {
+                currentCookies = (currentCookies ? currentCookies + '; ' : '') + setCookieHeader.join('; ');
+            }
 
             let extractedUuid = imgRes.headers['captcha-uuid'] || imgRes.headers['captcha_uuid'] || '';
             if (!extractedUuid && typeof imgRes.data === 'object' && imgRes.data !== null) {
@@ -142,7 +153,7 @@ app.post('/api/proxy-search', async (req, res) => {
                 success: false,
                 requireCaptcha: true,
                 captchaImage: base64Image,
-                sessionCookie: cookieString,
+                sessionCookie: currentCookies,
                 captchaUuid: extractedUuid
             });
 
@@ -183,10 +194,10 @@ app.post('/api/proxy-search', async (req, res) => {
 
         // 1. createRequest
         console.log(`--- [2] إرسال createRequest ---`);
-        const createRes = await client.post(
+        const createRes = await axios.post(
             config.createRequestUrl.trim(), 
             mergedPayload, 
-            { headers: requestHeaders }
+            { headers: requestHeaders, httpsAgent: httpsAgent }
         );
 
         // 2. getReportPrice
@@ -196,10 +207,10 @@ app.post('/api/proxy-search', async (req, res) => {
         };
 
         console.log('--- [3] إرسال طلب getReportPrice ---');
-        const reportRes = await client.post(
+        const reportRes = await axios.post(
             config.getReportUrl.trim(), 
             reportPayload, 
-            { headers: requestHeaders }
+            { headers: requestHeaders, httpsAgent: httpsAgent }
         );
 
         return res.json({ success: true, data: reportRes.data });

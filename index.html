@@ -52,7 +52,7 @@
             <form id="mojazSearchForm" class="space-y-5">
                 <div>
                     <label class="block text-xs font-bold text-gray-700 mb-2">الرقم التسلسلي / رقم الهيكل <span class="text-red-500">*</span></label>
-                    <input type="text" id="sequenceNumberInput" required placeholder="مثال: JTB11UJ80V6003567" 
+                    <input type="text" id="sequenceNumberInput" required placeholder="مثال: 991564310" 
                         class="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#008B7D] focus:border-[#008B7D] outline-none transition placeholder-gray-400">
                 </div>
 
@@ -189,8 +189,8 @@
                     captchaModal.classList.add('hidden');
 
                     if (resData.success) {
-                        // تفكيك البيانات المرجعة بناءً على الكائن المرفق بالضبط
-                        renderVehicleCard(resData.data);
+                        // تمرير كائن البيانات القادم (سواء كان يحتوي على "createRequest Success" أو data)
+                        renderVehicleCard(resData.data || resData);
                     } else {
                         alert('خطأ: ' + (resData.message || 'فشل جلب التقرير، يرجى المحاولة مرة أخرى.'));
                     }
@@ -202,29 +202,48 @@
                 }
             });
 
-            // دالة استخراج بيانات المركبة بناءً على الهيكل الصحيح للـ JSON
+            // دالة تفكيك الهيكل واستخراج كائن request بغض النظر عن الغلاف الخارجية
+            function extractRequestObject(data) {
+                if (!data) return null;
+
+                if (data['createRequest Success']) {
+                    return extractRequestObject(data['createRequest Success']);
+                }
+
+                if (Array.isArray(data) && data.length > 0) {
+                    return extractRequestObject(data[0]);
+                }
+
+                if (data.request) {
+                    return data.request;
+                }
+
+                if (data.vehicleMaker) {
+                    return data;
+                }
+
+                return null;
+            }
+
+            // دالة رسم بطاقة تفاصيل المركبة
             function renderVehicleCard(apiData) {
                 if (!apiData) return;
 
-                // الوصول لمسار الكائن request
-                let req = null;
+                const req = extractRequestObject(apiData);
 
-                if (Array.isArray(apiData) && apiData.length > 0) {
-                    req = apiData[0].request || apiData[0];
-                } else if (apiData.request) {
-                    req = apiData.request;
-                } else {
-                    req = apiData;
+                if (!req) {
+                    console.error('لم يتم العثور على بيانات المركبة في الاستجابة:', apiData);
+                    return;
                 }
 
-                // استخراج المتغيرات الدقيقة
+                // قراءة قيم الحقول المحددة مباشرة
                 const maker = req.vehicleMaker || 'غير محدد';
                 const model = req.vehicleModel || '';
                 const year = req.modelYear || 'غير محدد';
-                const seq = req.sequenceNumber || '-';
+                const seq = req.sequenceNumber || sequenceInput.value.trim();
                 const vin = req.vin || '-';
                 const customId = req.customId || '-';
-                const plateDesc = req.plateDesc || '';
+                const plateDesc = req.plateDesc || (req.plateNumber ? `${req.letterOne || ''} ${req.letterTwo || ''} ${req.letterThree || ''} ${req.plateNumber}` : '');
 
                 const makerFirstChar = maker !== 'غير محدد' ? maker.trim().charAt(0) : 'م';
 

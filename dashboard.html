@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة التحكم والتحليلات اللحظية</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #0f172a; color: #f8fafc; margin: 0; padding: 25px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid #1e293b; padding-bottom: 15px; }
+        .header h1 { font-size: 22px; color: #38bdf8; margin: 0; }
+        .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; display: inline-block; margin-left: 8px; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .stat-card { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
+        .stat-card h3 { margin: 0; font-size: 13px; color: #94a3b8; }
+        .stat-card p { margin: 10px 0 0 0; font-size: 28px; font-weight: bold; color: #38bdf8; }
+
+        .table-container { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
+        .table-container h2 { font-size: 16px; margin-top: 0; margin-bottom: 15px; color: #f1f5f9; }
+        
+        table { width: 100%; border-collapse: collapse; text-align: right; }
+        th, td { padding: 12px; border-bottom: 1px solid #334155; font-size: 13px; }
+        th { color: #94a3b8; font-weight: 600; }
+        
+        .token-badge { background: #0284c7; color: white; padding: 3px 8px; border-radius: 6px; font-family: monospace; font-size: 11px; }
+        .status-success { color: #4ade80; font-weight: bold; }
+        .status-fail { color: #f87171; font-weight: bold; }
+        
+        .btn-view { background: #334155; color: #38bdf8; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-view:hover { background: #475569; }
+
+        .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 100; }
+        .modal-content { background: #1e293b; padding: 20px; border-radius: 10px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; color: #f8fafc; font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1><span class="status-dot"></span> لوحة تتبع الزوار والمدخلات اللحظية</h1>
+        <span style="font-size: 12px; color: #94a3b8;">تحديث مباشر (WebSockets)</span>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>الزوار المتواجدون الآن</h3>
+            <p id="onlineUsers">0</p>
+        </div>
+        <div class="stat-card">
+            <h3>إجمالي عمليات الاستعلام</h3>
+            <p id="totalRequests">0</p>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <h2>سجل مدخلات الزوار والنتائج الظاهرة لهم</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>الوقت</th>
+                    <th>توكين الزائر (تتبع ثابت)</th>
+                    <th>الرقم المكتوب</th>
+                    <th>الحالة</th>
+                    <th>التفاصيل المرجعة</th>
+                </tr>
+            </thead>
+            <tbody id="logsTableBody">
+                <tr><td colspan="5" style="text-align: center; color: #64748b;">في انتظار دخول الزوار...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div id="jsonModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 style="margin-top: 0; color: #38bdf8;">النتيجة الظاهرة للزائر:</h3>
+            <pre id="jsonViewer" style="white-space: pre-wrap; word-break: break-all;"></pre>
+            <button onclick="closeModal()" class="btn-view" style="width: 100%; margin-top: 15px; padding: 10px;">إغلاق</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        socket.on('dashboard_update', (data) => {
+            document.getElementById('onlineUsers').innerText = data.onlineUsersCount;
+            document.getElementById('totalRequests').innerText = data.totalRequests;
+
+            const tbody = document.getElementById('logsTableBody');
+            tbody.innerHTML = '';
+
+            if (data.visitorLogs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b;">لا توجد عمليات بحث حتى الآن</td></tr>';
+                return;
+            }
+
+            data.visitorLogs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${log.time}</td>
+                    <td><span class="token-badge">${log.token}</span></td>
+                    <td><b>${log.input}</b></td>
+                    <td class="${log.status === 'نجاح' ? 'status-success' : 'status-fail'}">${log.status}</td>
+                    <td><button class="btn-view" onclick='showJson(${JSON.stringify(log.resultData)})'>عرض النتيجة</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+
+        function showJson(data) {
+            document.getElementById('jsonViewer').innerText = JSON.stringify(data, null, 2);
+            document.getElementById('jsonModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('jsonModal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

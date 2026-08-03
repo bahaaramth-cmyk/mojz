@@ -188,16 +188,16 @@
                     const resData = await response.json();
                     captchaModal.classList.add('hidden');
 
-                    console.log('بيانات الاستجابة القادمة من السيرفر:', resData);
+                    console.log('بيانات الاستجابة القادمة:', resData);
 
-                    // البحث الشجري المباشر عن كائن المركبة
-                    const reqObj = extractVehicleData(resData);
+                    // استخراج كائن المركبة باستخدام الدالة العميقة
+                    const vehicleData = extractVehicleData(resData);
 
-                    if (reqObj) {
-                        renderVehicleCard(reqObj);
+                    if (vehicleData) {
+                        renderVehicleCard(vehicleData);
                     } else {
                         const errMsg = resData.message || 'تعذر استخراج بيانات المركبة، يرجى إعادة المحاولة.';
-                        alert('خطأ: ' + errMsg);
+                        alert('تنبيه: ' + errMsg);
                     }
                 } catch (err) {
                     alert('حدث خطأ أثناء الاتصال بالسيرفر الوسيط');
@@ -207,88 +207,118 @@
                 }
             });
 
-            // دالة بحث شاملة تجوب كافة مستويات الـ JSON للوصول للكائن الذي يحتوي على vehicleMaker أو vin
+            // دالة استخراج ذكية وشاملة تبحث في كافة طيات الاستجابة
             function extractVehicleData(data) {
                 if (!data) return null;
 
-                if (typeof data === 'string') {
-                    try { data = JSON.parse(data); } catch(e) {}
+                function tryParse(item) {
+                    if (typeof item === 'string') {
+                        try { return JSON.parse(item); } catch (e) { return item; }
+                    }
+                    return item;
                 }
 
-                let foundNode = null;
+                let targetVehicle = null;
 
-                function walk(node) {
-                    if (!node || typeof node !== 'object' || foundNode) return;
+                function scan(node) {
+                    if (!node || targetVehicle) return;
 
-                    // فحص ما إذا كان الكائن الحالي يحتوي على بيانات المركبة الفعلية
-                    if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) {
-                        foundNode = node;
+                    node = tryParse(node);
+                    if (typeof node !== 'object' || node === null) return;
+
+                    // فحص خصائص المركبة الأساسية
+                    const maker = node.vehicleMaker || node.maker || node.make;
+                    const vin = node.vin || node.chassisNumber;
+                    const seq = node.sequenceNumber || node.sequence;
+                    const model = node.vehicleModel || node.model;
+
+                    if (maker || vin || (seq && model)) {
+                        targetVehicle = node;
                         return;
                     }
 
                     if (Array.isArray(node)) {
-                        for (let item of node) {
-                            walk(item);
-                            if (foundNode) return;
+                        for (let element of node) {
+                            scan(element);
+                            if (targetVehicle) return;
                         }
                     } else {
                         for (let key in node) {
                             if (Object.prototype.hasOwnProperty.call(node, key)) {
-                                walk(node[key]);
-                                if (foundNode) return;
+                                scan(node[key]);
+                                if (targetVehicle) return;
                             }
                         }
                     }
                 }
 
-                walk(data);
-                return foundNode;
+                scan(data);
+                return targetVehicle;
             }
 
-            // دالة رسم بطاقة تفاصيل المركبة
-            function renderVehicleCard(req) {
-                if (!req) return;
+            // دالة تنسيق وترتيب البيانات بشكل منظم وجذاب
+            function renderVehicleCard(data) {
+                if (!data) return;
 
-                const maker = req.vehicleMaker || 'غير محدد';
-                const model = req.vehicleModel || '';
-                const year = req.modelYear || 'غير محدد';
-                const seq = req.sequenceNumber || sequenceInput.value.trim();
-                const vin = req.vin || '-';
-                const customId = req.customId || '-';
-                const plateDesc = req.plateDesc || (req.plateNumber ? `${req.letterOne || ''} ${req.letterTwo || ''} ${req.letterThree || ''} ${req.plateNumber}` : '');
+                const maker = data.vehicleMaker || data.maker || 'غير محدد';
+                const model = data.vehicleModel || data.model || '';
+                const year = data.modelYear || data.year || 'غير محدد';
+                const seq = data.sequenceNumber || data.sequence || sequenceInput.value.trim();
+                const vin = data.vin || data.chassisNumber || '-';
+                const customId = data.customId || data.customCardNumber || '-';
+                
+                // تجميع تفاصيل اللوحة
+                let plate = data.plateDesc || '';
+                if (!plate && data.plateNumber) {
+                    plate = `${data.letterOne || ''} ${data.letterTwo || ''} ${data.letterThree || ''} - ${data.plateNumber}`;
+                }
+                if (!plate) plate = 'غير متوفرة';
 
-                const makerFirstChar = maker !== 'غير محدد' ? maker.trim().charAt(0) : 'م';
+                const makerLetter = maker !== 'غير محدد' ? maker.trim().charAt(0) : '🚗';
 
                 vehicleCardContainer.innerHTML = `
-                    <div class="bg-gradient-to-br from-teal-50/60 to-white p-5 rounded-2xl border border-teal-100 space-y-4 shadow-sm text-right" dir="rtl">
-                        <div class="flex justify-between items-center border-b border-teal-100 pb-3">
+                    <div class="bg-gradient-to-br from-teal-50/80 via-white to-gray-50 p-6 rounded-2xl border border-teal-100 shadow-lg space-y-5 text-right transition-all">
+                        
+                        <div class="flex justify-between items-center border-b border-teal-100 pb-4">
                             <div>
-                                <span class="bg-[#008B7D] text-white text-[11px] font-bold px-2.5 py-1 rounded-md inline-block mb-1">مركبة مسجلة</span>
-                                <h3 class="text-xl font-black text-gray-900">${maker} ${model}</h3>
-                                <p class="text-xs text-gray-500 font-semibold mt-0.5">سنة الصنع: ${year} ${plateDesc ? `| اللوحة: ${plateDesc}` : ''}</p>
+                                <span class="bg-[#008B7D] text-white text-[11px] font-bold px-3 py-1 rounded-full inline-block mb-1.5 shadow-sm">
+                                    ✓ تم العثور على المركبة
+                                </span>
+                                <h3 class="text-2xl font-black text-gray-900 leading-tight">${maker} ${model}</h3>
+                                <p class="text-xs text-gray-500 font-semibold mt-1">سنة الصنع: <span class="text-gray-800 font-bold">${year}</span></p>
                             </div>
-                            <div class="w-14 h-14 bg-white rounded-xl shadow-sm border border-gray-200 flex items-center justify-center p-2">
-                                <span class="text-2xl font-black text-[#005A52]">${makerFirstChar}</span>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                                <span class="text-gray-400 block mb-1">الرقم التسلسلي</span>
-                                <span class="font-bold text-gray-800 text-sm dir-ltr text-right block">${seq}</span>
-                            </div>
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                                <span class="text-gray-400 block mb-1">رقم الهيكل (VIN)</span>
-                                <span class="font-bold text-gray-800 text-sm dir-ltr text-right block">${vin}</span>
-                            </div>
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm md:col-span-2">
-                                <span class="text-gray-400 block mb-1">الرقم الجمركي</span>
-                                <span class="font-bold text-gray-800 text-sm dir-ltr text-right block">${customId}</span>
+                            <div class="w-14 h-14 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center text-2xl font-black text-[#005A52]">
+                                ${makerLetter}
                             </div>
                         </div>
 
-                        <button type="button" class="w-full py-3 bg-[#008B7D] hover:bg-[#00766A] text-white font-bold text-sm rounded-xl transition shadow-md">
-                            عرض التقرير الشامل 📄
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-xs">
+                            
+                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
+                                <span class="text-gray-400 font-medium block mb-1">الرقم التسلسلي</span>
+                                <span class="font-bold text-gray-900 text-sm tracking-wide font-mono">${seq}</span>
+                            </div>
+
+                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
+                                <span class="text-gray-400 font-medium block mb-1">رقم اللوحة</span>
+                                <span class="font-bold text-[#005A52] text-sm">${plate}</span>
+                            </div>
+
+                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
+                                <span class="text-gray-400 font-medium block mb-1">رقم الهيكل (VIN)</span>
+                                <span class="font-bold text-gray-900 text-sm tracking-wide font-mono uppercase">${vin}</span>
+                            </div>
+
+                            <div class="bg-white p-3.5 rounded-xl border border-gray-200/70 shadow-sm flex flex-col justify-between">
+                                <span class="text-gray-400 font-medium block mb-1">الرقم الجمركي</span>
+                                <span class="font-bold text-gray-900 text-sm tracking-wide font-mono">${customId}</span>
+                            </div>
+
+                        </div>
+
+                        <button type="button" class="w-full py-3.5 bg-[#008B7D] hover:bg-[#00766A] text-white font-bold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2">
+                            <span>عرض التقرير الشامل</span>
+                            <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"></path></svg>
                         </button>
                     </div>
                 `;

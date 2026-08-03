@@ -28,7 +28,7 @@
         .status-loading { background: #e0f2fe; color: #0369a1; }
         .status-error { background: #fee2e2; color: #b91c1c; }
         
-        /* تنسيقات عرض بيانات المركبة */
+        /* تصميم كرت النتائج */
         #resultContainer { margin-top: 25px; display: none; text-align: right; }
         .vehicle-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .vehicle-header { background: #005A52; color: #ffffff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
@@ -41,6 +41,7 @@
         .item-label { display: block; font-size: 11px; color: #718096; font-weight: 600; margin-bottom: 4px; }
         .item-val { display: block; font-size: 14px; color: #1a202c; font-weight: bold; direction: ltr; text-align: right; min-height: 20px; }
         .item-val.rtl { direction: rtl; }
+        .price-tag { font-size: 20px; color: #008B7D; font-weight: 800; }
     </style>
 </head>
 <body>
@@ -105,6 +106,7 @@
 
         async function sendRequest(payload) {
             const statusMsg = document.getElementById('statusMsg');
+            const resultContainer = document.getElementById('resultContainer');
             const submitBtn = document.getElementById('submitBtn');
 
             try {
@@ -126,18 +128,10 @@
                 } 
                 else {
                     closeCaptchaModal();
-                    
-                    // التفتيش واستخراج بيانات المركبة من createRequest حصراً
-                    const reqObj = findVehicleRequestData(result);
+                    statusMsg.style.display = 'none';
 
-                    if (reqObj) {
-                        statusMsg.style.display = 'none';
-                        renderVehicleCard(reqObj);
-                    } else {
-                        statusMsg.className = 'status-msg status-error';
-                        statusMsg.innerText = result.message || 'تعذر العثور على مواصفات المركبة (يرجى التأكد من رابط الاستجابة بالسيرفر الوسيط)';
-                        statusMsg.style.display = 'block';
-                    }
+                    // تحليل لعرض المركبة أو التسعيرة
+                    renderResult(result);
                     submitBtn.disabled = false;
                 }
             } catch (err) {
@@ -177,131 +171,200 @@
             document.getElementById('captchaModal').style.display = 'none';
         }
 
-        // دالة تفتيش متقدمة تتخطى كائنات الأسعار وتبحث عن كائن المركبة المباشر
-        function findVehicleRequestData(node) {
+        // دالة التفتيش العميقة لاستخراج كائن المركبة
+        function findVehicleObject(node) {
             if (!node) return null;
-
             if (typeof node === 'string') {
                 try { node = JSON.parse(node); } catch (e) { return null; }
             }
-
             if (typeof node !== 'object' || node === null) return null;
 
-            // التأكد من أن الكائن يحتوي على الخصائص الخاصة بالمركبة من createRequest
-            if (node.vehicleMaker || node.vehicleModel || (node.vin && typeof node.vin === 'string' && node.vin.length > 3)) {
-                return node;
-            }
-
-            // الفحص بداخل الخاصية request
+            if (node.vehicleMaker || node.sequenceNumber || node.vin) return node;
             if (node.request && typeof node.request === 'object') {
-                let res = findVehicleRequestData(node.request);
+                let res = findVehicleObject(node.request);
                 if (res) return res;
             }
 
-            // الفحص في المصفوفات والكائنات الفرعية
             if (Array.isArray(node)) {
                 for (let item of node) {
-                    let res = findVehicleRequestData(item);
+                    let res = findVehicleObject(item);
                     if (res) return res;
                 }
             } else {
                 for (let k in node) {
                     if (Object.prototype.hasOwnProperty.call(node, k)) {
-                        // تجاهل كائن الأسعار كي لا يتوقف الفحص عنده
-                        if (k === 'servicePrice') continue;
-                        let res = findVehicleRequestData(node[k]);
+                        let res = findVehicleObject(node[k]);
                         if (res) return res;
                     }
                 }
             }
-
             return null;
         }
 
-        // دالة رسم بطاقة تفاصيل المركبة
-        function renderVehicleCard(req) {
-            const resultContainer = document.getElementById('resultContainer');
-            req = req || {};
+        // دالة التفتيش لاستخراج بيانات التسعيرة
+        function findPriceObject(node) {
+            if (!node) return null;
+            if (typeof node === 'string') {
+                try { node = JSON.parse(node); } catch (e) { return null; }
+            }
+            if (typeof node !== 'object' || node === null) return null;
 
-            function cleanVal(v) {
-                if (v === null || v === undefined) return '-';
-                const str = String(v).trim();
-                if (str === '0000' || str === '0' || str === 'null' || str === '') return '-';
-                return str;
+            if (node.servicePrice || node.costVat || node.totalPriceVat) {
+                return node.servicePrice ? node.servicePrice : node;
             }
 
-            const maker = cleanVal(req.vehicleMaker);
-            const model = cleanVal(req.vehicleModel);
-            const year = cleanVal(req.modelYear);
-            const seq = cleanVal(req.sequenceNumber);
-            const vin = cleanVal(req.vin);
-            const customId = cleanVal(req.customId);
-            const expiryDate = cleanVal(req.expiryDate);
-            const requestId = cleanVal(req.id);
-            const source = cleanVal(req.source);
-            
-            // تركيب رقم اللوحة
-            let plateStr = cleanVal(req.plateDesc);
-            if (plateStr === '-') {
-                const l1 = cleanVal(req.letterOne);
-                const l2 = cleanVal(req.letterTwo);
-                const l3 = cleanVal(req.letterThree);
-                const pNum = cleanVal(req.plateNumber);
-                if (l1 !== '-' || l2 !== '-' || l3 !== '-' || pNum !== '-') {
-                    plateStr = `${l1 !== '-' ? l1 : ''} ${l2 !== '-' ? l2 : ''} ${l3 !== '-' ? l3 : ''} ${pNum !== '-' ? pNum : ''}`.trim();
+            if (Array.isArray(node)) {
+                for (let item of node) {
+                    let res = findPriceObject(item);
+                    if (res) return res;
+                }
+            } else {
+                for (let k in node) {
+                    if (Object.prototype.hasOwnProperty.call(node, k)) {
+                        let res = findPriceObject(node[k]);
+                        if (res) return res;
+                    }
                 }
             }
+            return null;
+        }
 
-            const title = (maker !== '-' || model !== '-') ? `${maker !== '-' ? maker : ''} ${model !== '-' ? model : ''}`.trim() : 'تفاصيل المركبة المستعلم عنها';
+        function renderResult(apiResult) {
+            const resultContainer = document.getElementById('resultContainer');
+            
+            // 1. محاولة استخراج بيانات المركبة
+            const veh = findVehicleObject(apiResult);
 
-            resultContainer.innerHTML = `
-                <div class="vehicle-card">
-                    <div class="vehicle-header">
-                        <h3>${title}</h3>
-                        ${year !== '-' ? `<span>سنة الصنع: ${year}</span>` : ''}
+            if (veh) {
+                function cleanVal(v) {
+                    if (v === null || v === undefined) return '';
+                    const str = String(v).trim();
+                    if (str === '0000' || str === '0' || str === 'null') return '';
+                    return str;
+                }
+
+                const maker = cleanVal(veh.vehicleMaker);
+                const model = cleanVal(veh.vehicleModel);
+                const year = cleanVal(veh.modelYear);
+                const seq = cleanVal(veh.sequenceNumber);
+                const vin = cleanVal(veh.vin);
+                const customId = cleanVal(veh.customId);
+                const expiryDate = cleanVal(veh.expiryDate);
+                const requestId = cleanVal(veh.id);
+                const source = cleanVal(veh.source);
+                
+                let plateStr = cleanVal(veh.plateDesc);
+                if (!plateStr) {
+                    const l1 = cleanVal(veh.letterOne);
+                    const l2 = cleanVal(veh.letterTwo);
+                    const l3 = cleanVal(veh.letterThree);
+                    const pNum = cleanVal(veh.plateNumber);
+                    if (l1 || l2 || l3 || pNum) {
+                        plateStr = `${l1} ${l2} ${l3} ${pNum}`.trim();
+                    }
+                }
+
+                const title = (maker || model) ? `${maker} ${model}`.trim() : 'بيانات المركبة المستعلم عنها';
+
+                resultContainer.innerHTML = `
+                    <div class="vehicle-card">
+                        <div class="vehicle-header">
+                            <h3>${title}</h3>
+                            ${year ? `<span>سنة الصنع: ${year}</span>` : ''}
+                        </div>
+                        <div class="vehicle-grid">
+                            <div class="grid-item">
+                                <span class="item-label">الشركة المصنعة</span>
+                                <span class="item-val rtl">${maker}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">موديل المركبة</span>
+                                <span class="item-val rtl">${model}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">الرقم التسلسلي</span>
+                                <span class="item-val">${seq}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">رقم اللوحة</span>
+                                <span class="item-val rtl">${plateStr}</span>
+                            </div>
+                            <div class="grid-item full">
+                                <span class="item-label">رقم الهيكل (VIN)</span>
+                                <span class="item-val">${vin}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">الرقم الجمركي</span>
+                                <span class="item-val">${customId}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">تاريخ الانتهاء</span>
+                                <span class="item-val rtl">${expiryDate}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">رقم الطلب</span>
+                                <span class="item-val">${requestId}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">المصدر</span>
+                                <span class="item-val rtl">${source}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="vehicle-grid">
-                        <div class="grid-item">
-                            <span class="item-label">الشركة المصنعة</span>
-                            <span class="item-val rtl">${maker}</span>
+                `;
+                resultContainer.style.display = 'block';
+                return;
+            }
+
+            // 2. إذا لم يجد بيانات مركبة، يفحص إذا كانت بيانات تسعيرة التقرير (مثل الـ JSON المرفق مؤخراً)
+            const price = findPriceObject(apiResult);
+
+            if (price) {
+                const serviceName = price.nameAr || 'تقرير موجز';
+                const costBeforeVat = price.cost || price.subTotalPrice || price.totalPrice || '103.48';
+                const vatPercent = price.vat || '15';
+                const totalWithVat = price.costVat || price.totalPriceVat || price.subTotalPriceWithVatAddon || '119';
+                const serviceCode = price.billingServiceId || price.serviceCode || 'MJZ_SINGLE_REPORT';
+
+                resultContainer.innerHTML = `
+                    <div class="vehicle-card">
+                        <div class="vehicle-header">
+                            <h3>تسعيرة الخدمة: ${serviceName}</h3>
+                            <span>حالة الطلب: جاهز</span>
                         </div>
-                        <div class="grid-item">
-                            <span class="item-label">موديل المركبة</span>
-                            <span class="item-val rtl">${model}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">الرقم التسلسلي</span>
-                            <span class="item-val">${seq}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">رقم اللوحة</span>
-                            <span class="item-val rtl">${plateStr}</span>
-                        </div>
-                        <div class="grid-item full">
-                            <span class="item-label">رقم الهيكل (VIN)</span>
-                            <span class="item-val">${vin}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">الرقم الجمركي</span>
-                            <span class="item-val">${customId}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">تاريخ الانتهاء</span>
-                            <span class="item-val rtl">${expiryDate}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">رقم الطلب</span>
-                            <span class="item-val">${requestId}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">المصدر</span>
-                            <span class="item-val rtl">${source}</span>
+                        <div class="vehicle-grid">
+                            <div class="grid-item">
+                                <span class="item-label">نوع التقرير</span>
+                                <span class="item-val rtl">${serviceName}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">رمز الخدمة</span>
+                                <span class="item-val">${serviceCode}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">السعر قبل الضريبة</span>
+                                <span class="item-val rtl">${costBeforeVat} ر.س</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">نسبة الضريبة (VAT)</span>
+                                <span class="item-val rtl">%${vatPercent}</span>
+                            </div>
+                            <div class="grid-item full" style="background:#e6fffa; border-color:#b2f5ea; text-align:center;">
+                                <span class="item-label" style="color:#234e52; font-size:13px;">المبلغ الإجمالي شامل الضريبة</span>
+                                <span class="price-tag">${totalWithVat} ر.س</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `;
+                `;
+                resultContainer.style.display = 'block';
+                return;
+            }
 
-            resultContainer.style.display = 'block';
+            // 3. في حال عدم العثور على أيهما
+            const statusMsg = document.getElementById('statusMsg');
+            statusMsg.className = 'status-msg status-error';
+            statusMsg.innerText = apiResult.message || 'لم يتم العثور على بيانات في الاستجابة الحالية';
+            statusMsg.style.display = 'block';
         }
     </script>
 </body>

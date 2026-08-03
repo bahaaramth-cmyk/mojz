@@ -3,169 +3,223 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>استعلام موجز - موثق وسريع</title>
+    <title>Mojaz موجز - تقرير المركبات المستعملة</title>
+    
+    <link rel="icon" href="https://mojaz.com.sa/mojaz/assets/favicon.ico">
+    <link rel="stylesheet" href="https://mojaz.com.sa/mojaz/styles-ULQ6U2RM.css">
+    
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    
     <style>
         body {
-            font-family: 'Cairo', sans-serif;
-            background-color: #f8fafc;
+            font-family: 'Tajawal', sans-serif !important;
+            background-color: #f4f6f8;
         }
-        .mojaz-primary {
-            background-color: #0f766e;
+        .mojaz-header {
+            background-color: #005A52;
         }
-        .mojaz-primary:hover {
-            background-color: #115e59;
+        .mojaz-primary-btn {
+            background-color: #008B7D;
         }
-        .mojaz-text {
-            color: #0f766e;
+        .mojaz-primary-btn:hover {
+            background-color: #00766A;
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col justify-between text-slate-800">
+<body class="bg-[#F4F6F8] min-h-screen flex flex-col justify-between text-right">
 
-    <header class="bg-white shadow-sm border-b border-slate-200">
-        <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+    <header class="mojaz-header text-white py-3.5 px-6 shadow-md">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-lg mojaz-primary text-white flex items-center justify-center font-bold text-xl shadow-md">
-                    م
+                <div class="bg-white text-[#005A52] font-black text-xl px-3 py-1 rounded-md shadow-sm">
+                    موجز
                 </div>
-                <div>
-                    <h1 class="font-extrabold text-xl text-slate-900 tracking-tight">موجز</h1>
-                    <p class="text-xs text-slate-500">تقرير السيارات المستعملة</p>
-                </div>
+                <span class="text-xs md:text-sm font-medium text-teal-100">المنصة الوطنية لتقارير السيارات المستعملة</span>
             </div>
-            <div>
-                <a href="/dashboard" class="text-sm font-semibold text-slate-600 hover:mojaz-text transition">لوحة التحكم</a>
-            </div>
+            <a href="/dashboard" class="text-xs md:text-sm font-semibold text-teal-100 hover:text-white transition">لوحة التحكم ⚙️</a>
         </div>
     </header>
 
-    <main class="flex-1 flex items-center justify-center p-4">
-        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-100 p-6 md:p-8 space-y-6">
+    <main class="flex-1 flex items-center justify-center p-4 my-6">
+        <div class="w-full max-w-lg bg-white rounded-2xl shadow-xl p-6 md:p-8 space-y-6 border border-gray-100">
             
-            <div class="text-center space-y-2">
-                <h2 class="text-2xl font-bold text-slate-900">ابحث عن تقرير مركبة</h2>
-                <p class="text-sm text-slate-500">أدخل الرقم التسلسلي للمركبة للاستعلام الفوري</p>
+            <div class="border-b border-gray-100 pb-4">
+                <h2 class="text-xl font-bold text-gray-900">ابحث عن تقرير مركبة</h2>
+                <p class="text-xs text-gray-500 mt-1">خدمة توفر البيانات المعتمدة لأي مركبة مستعملة فورياً</p>
             </div>
 
-            <form id="searchForm" class="space-y-4">
-                
+            <form id="mojazSearchForm" class="space-y-5">
                 <div>
-                    <label class="block text-sm font-semibold text-slate-700 mb-1">الرقم التسلسلي / رقم الهيكل</label>
-                    <input type="text" id="sequenceNumber" required placeholder="مثال: JTB11UJ80V6003567" 
-                        class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-left placeholder:text-right transition outline-none">
+                    <label class="block text-xs font-bold text-gray-700 mb-2">الرقم التسلسلي / رقم الهيكل <span class="text-red-500">*</span></label>
+                    <input type="text" id="sequenceNumberInput" required placeholder="مثال: JTB11UJ80V6003567" 
+                        class="w-full px-4 py-3 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#008B7D] focus:border-[#008B7D] outline-none transition placeholder-gray-400">
                 </div>
 
-                <div id="captchaSection" class="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <label class="block text-sm font-semibold text-slate-700">رمز التحقق (الكابتشا)</label>
-                    <div class="flex items-center gap-3">
-                        <div class="flex-1 bg-white border border-slate-200 rounded-lg overflow-hidden h-12 flex items-center justify-center shadow-inner">
-                            <img id="captchaImage" src="" alt="جاري تحميل الكابتشا..." class="h-full object-contain">
-                        </div>
-                        <button type="button" id="refreshCaptchaBtn" class="px-3 py-2 text-xs font-semibold mojaz-text bg-white border border-teal-200 rounded-lg shadow-sm hover:bg-teal-50">
-                            تحديث 🔄
-                        </button>
-                    </div>
-                    <input type="text" id="captchaInput" placeholder="أدخل الأرقام الظاهرة" 
-                        class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-center text-lg font-bold tracking-widest outline-none">
-                </div>
-
-                <button type="submit" id="submitBtn" class="w-full py-3.5 px-4 mojaz-primary text-white font-bold rounded-xl shadow-lg shadow-teal-700/20 hover:shadow-teal-700/30 transition duration-200 text-base">
-                    استعلام عن التقرير
+                <button type="submit" id="initSearchBtn" class="w-full py-3.5 mojaz-primary-btn text-white font-bold text-base rounded-xl shadow-md transition duration-200">
+                    اطلب التقرير
                 </button>
             </form>
-
-            <div id="resultBox" class="hidden p-4 rounded-xl text-sm leading-relaxed"></div>
         </div>
     </main>
 
-    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-        جميع الحقوق محفوظة © 2026 | بوابة الاستعلام السريع
+    <div id="captchaModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 text-right space-y-5 shadow-2xl border border-gray-100">
+            
+            <div class="flex justify-between items-center border-b border-gray-100 pb-3">
+                <h3 class="text-base font-bold text-gray-800">رمز التحقق المرئي (الكابتشا)</h3>
+                <button type="button" id="closeCaptchaModal" class="text-gray-400 hover:text-gray-600 font-bold text-xl">&times;</button>
+            </div>
+
+            <p class="text-xs text-gray-500 leading-relaxed">يرجى إدخال رمز التحقق الظاهر بالصورة لاستكمال عملية الاستعلام:</p>
+
+            <div class="flex items-center gap-3 bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+                <div class="flex-1 bg-white border border-gray-200 rounded-lg h-14 flex items-center justify-center overflow-hidden shadow-inner">
+                    <img id="modalCaptchaImg" src="" alt="جاري التحميل..." class="h-full object-contain">
+                </div>
+                <button type="button" id="modalReloadCaptcha" class="px-3 py-2 text-xs font-bold text-[#008B7D] bg-white border border-[#008B7D] rounded-lg hover:bg-teal-50 transition">
+                    تحديث 🔄
+                </button>
+            </div>
+
+            <div>
+                <input type="text" id="modalCaptchaInput" placeholder="أدخل الرقم هنا" required
+                    class="w-full text-center font-bold text-xl tracking-widest p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#008B7D]">
+            </div>
+
+            <button type="button" id="modalSubmitBtn" class="w-full py-3.5 mojaz-primary-btn text-white font-bold text-base rounded-xl shadow-md transition">
+                تأكيد واستعلام
+            </button>
+        </div>
+    </div>
+
+    <div id="reportResultModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 text-right space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-gray-100 pb-3">
+                <h3 class="text-lg font-bold text-gray-900">بيانات التقرير المستخرجة 🎉</h3>
+                <button type="button" onclick="document.getElementById('reportResultModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 font-bold text-2xl">&times;</button>
+            </div>
+            <div class="flex-1 overflow-y-auto bg-slate-900 text-emerald-400 p-4 rounded-xl font-mono text-xs dir-ltr text-left">
+                <pre id="reportJsonOutput"></pre>
+            </div>
+            <button type="button" onclick="document.getElementById('reportResultModal').classList.add('hidden')" class="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition text-sm">
+                إغلاق
+            </button>
+        </div>
+    </div>
+
+    <footer class="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
+        جميع الحقوق محفوظة لموقع موجز © 2026
     </footer>
 
     <script>
-        let sessionCookie = '';
-        let captchaUuid = '';
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('mojazSearchForm');
+            const sequenceInput = document.getElementById('sequenceNumberInput');
+            const initBtn = document.getElementById('initSearchBtn');
 
-        const searchForm = document.getElementById('searchForm');
-        const sequenceInput = document.getElementById('sequenceNumber');
-        const captchaInput = document.getElementById('captchaInput');
-        const captchaImage = document.getElementById('captchaImage');
-        const refreshBtn = document.getElementById('refreshCaptchaBtn');
-        const resultBox = document.getElementById('resultBox');
-        const submitBtn = document.getElementById('submitBtn');
+            const captchaModal = document.getElementById('captchaModal');
+            const closeCaptchaModalBtn = document.getElementById('closeCaptchaModal');
+            const modalCaptchaImg = document.getElementById('modalCaptchaImg');
+            const modalCaptchaInput = document.getElementById('modalCaptchaInput');
+            const modalReloadBtn = document.getElementById('modalReloadCaptcha');
+            const modalSubmitBtn = document.getElementById('modalSubmitBtn');
 
-        // دالة جلب الكابتشا
-        async function fetchCaptcha() {
-            captchaImage.src = '';
-            captchaImage.alt = 'جاري التحميل...';
-            try {
-                const response = await fetch('/api/proxy-search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
-                const data = await response.json();
-                
-                if (data.requireCaptcha) {
-                    captchaImage.src = data.captchaImage;
-                    sessionCookie = data.sessionCookie || '';
-                    captchaUuid = data.captchaUuid || '';
+            const reportResultModal = document.getElementById('reportResultModal');
+            const reportJsonOutput = document.getElementById('reportJsonOutput');
+
+            let currentSessionCookie = '';
+            let currentCaptchaUuid = '';
+
+            // دالة جلب الكابتشا
+            async function fetchCaptcha() {
+                modalCaptchaImg.src = '';
+                modalCaptchaImg.alt = 'جاري جلب الكابتشا...';
+                modalCaptchaInput.value = '';
+
+                try {
+                    const response = await fetch('/api/proxy-search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await response.json();
+
+                    if (data.requireCaptcha) {
+                        modalCaptchaImg.src = data.captchaImage;
+                        currentSessionCookie = data.sessionCookie || '';
+                        currentCaptchaUuid = data.captchaUuid || '';
+                    }
+                } catch (err) {
+                    modalCaptchaImg.alt = 'فشل جلب الصورة';
                 }
-            } catch (err) {
-                captchaImage.alt = 'فشل جلب الصورة';
             }
-        }
 
-        // جلب الكابتشا عند فتح الصفحة
-        window.addEventListener('DOMContentLoaded', fetchCaptcha);
-        refreshBtn.addEventListener('click', fetchCaptcha);
+            // فتح النافذة المنبثقة للطلب
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const sequenceVal = sequenceInput.value.trim();
+                if (!sequenceVal) return;
 
-        // إرسال طلب الاستعلام
-        searchForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
+                initBtn.disabled = true;
+                initBtn.innerText = 'جاري التحضير...';
 
-            submitBtn.disabled = true;
-            submitBtn.innerText = 'جاري الاستعلام...';
-            resultBox.classList.add('hidden');
+                await fetchCaptcha();
+                captchaModal.classList.remove('hidden');
 
-            try {
-                const response = await fetch('/api/proxy-search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        phoneNumber: sequenceInput.value.trim(),
-                        captchaCode: captchaInput.value.trim(),
-                        sessionCookie: sessionCookie,
-                        captchaUuid: captchaUuid
-                    })
-                });
+                initBtn.disabled = false;
+                initBtn.innerText = 'اطلب التقرير';
+            });
 
-                const resData = await response.json();
+            // تحديث الكابتشا
+            modalReloadBtn.addEventListener('click', fetchCaptcha);
 
-                resultBox.classList.remove('hidden');
+            // إغلاق نافذة الكابتشا
+            closeCaptchaModalBtn.addEventListener('click', () => {
+                captchaModal.classList.add('hidden');
+            });
 
-                if (resData.success) {
-                    resultBox.className = 'p-4 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200';
-                    resultBox.innerHTML = `
-                        <div class="font-bold text-base mb-1">تمت العملية بنجاح! 🎉</div>
-                        <pre class="mt-2 text-xs overflow-x-auto bg-white p-3 rounded border border-emerald-100 text-slate-700">${JSON.stringify(resData.data, null, 2)}</pre>
-                    `;
-                } else {
-                    resultBox.className = 'p-4 rounded-xl text-sm bg-rose-50 text-rose-800 border border-rose-200';
-                    resultBox.innerHTML = `<strong>خطأ:</strong> ${resData.message || 'فشل تنفيذ الطلب'}`;
-                    fetchCaptcha(); // تجديد الكابتشا عند الخطأ
+            // تأكيد الطلب وإرسال البحث
+            modalSubmitBtn.addEventListener('click', async () => {
+                const captchaCode = modalCaptchaInput.value.trim();
+                const sequenceVal = sequenceInput.value.trim();
+
+                if (!captchaCode) {
+                    alert('يرجى إدخال رمز الكابتشا');
+                    return;
                 }
-            } catch (err) {
-                resultBox.classList.remove('hidden');
-                resultBox.className = 'p-4 rounded-xl text-sm bg-rose-50 text-rose-800 border border-rose-200';
-                resultBox.innerHTML = 'حدث خطأ أثناء الاتصال بالسيرفر الوسيط.';
-                fetchCaptcha();
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerText = 'استعلام عن التقرير';
-            }
+
+                modalSubmitBtn.disabled = true;
+                modalSubmitBtn.innerText = 'جاري الاستعلام...';
+
+                try {
+                    const response = await fetch('/api/proxy-search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            phoneNumber: sequenceVal,
+                            captchaCode: captchaCode,
+                            sessionCookie: currentSessionCookie,
+                            captchaUuid: currentCaptchaUuid
+                        })
+                    });
+
+                    const resData = await response.json();
+                    captchaModal.classList.add('hidden');
+
+                    if (resData.success) {
+                        reportJsonOutput.textContent = JSON.stringify(resData.data, null, 2);
+                        reportResultModal.classList.remove('hidden');
+                    } else {
+                        alert('خطأ: ' + (resData.message || 'فشل جلب التقرير، يرجى المحاولة مرة أخرى.'));
+                    }
+                } catch (err) {
+                    alert('حدث خطأ أثناء الاتصال بالسيرفر الوسيط');
+                } finally {
+                    modalSubmitBtn.disabled = false;
+                    modalSubmitBtn.innerText = 'تأكيد واستعلام';
+                }
+            });
         });
     </script>
 </body>
